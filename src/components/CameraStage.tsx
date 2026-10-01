@@ -366,10 +366,19 @@ export function CameraStage() {
   const [globalScoreSubmitted, setGlobalScoreSubmitted] = useState(false)
   const [initialsInput, setInitialsInput] = useState('')
   const [globalScores, setGlobalScores] = useState<HighScoreEntry[]>([])
+  // Mirror of globalScores readable from inside the mount-once game
+  // effect. The initial fetch resolves *after* that effect has started,
+  // so a plain snapshot there would be stuck at [] and every score
+  // would rank as a "new high score".
+  const globalScoresRef = useRef<HighScoreEntry[]>([])
+  const applyGlobalScores = (entries: HighScoreEntry[]) => {
+    globalScoresRef.current = entries
+    setGlobalScores(entries)
+  }
 
   const refreshGlobalScores = () => {
     if (!isGlobalLeaderboardConfigured()) return
-    fetchGlobalTopScores(MAX_HIGH_SCORE_ENTRIES).then(setGlobalScores)
+    fetchGlobalTopScores(MAX_HIGH_SCORE_ENTRIES).then(applyGlobalScores)
   }
 
   // Global board is entirely optional — see .env.example. Nothing here
@@ -424,7 +433,6 @@ export function CameraStage() {
     let livesRemaining = STARTING_LIVES
     let invincibleUntil = 0
     let scoreTotal = 0
-    let globalScoresLocal = globalScores
     let pendingEntryIndex: number | null = null
     let screenLocal: Screen = 'start'
     let gameModeLocal: GameMode = 'solo'
@@ -495,15 +503,14 @@ export function CameraStage() {
 
     const submitInitials = (initials: string) => {
       if (pendingEntryIndex === null) return
-      const updated = [...globalScoresLocal]
+      const updated = [...globalScoresRef.current]
       updated[pendingEntryIndex] = {
         ...updated[pendingEntryIndex],
         initials: initials.slice(0, INITIALS_MAX_LENGTH),
       }
-      globalScoresLocal = updated
       // Optimistic local preview — replaced by the real server list once
       // submitGlobalScore's write lands and refreshGlobalScores refetches.
-      setGlobalScores(updated)
+      applyGlobalScores(updated)
       setGlobalScoreSubmitted(true)
       submitGlobalScore(updated[pendingEntryIndex], gameModeLocal).then(
         refreshGlobalScores,
@@ -602,12 +609,11 @@ export function CameraStage() {
             // of where the score *would* land.
             if (isGlobalLeaderboardConfigured()) {
               const newEntry: HighScoreEntry = { initials: '', score: scoreTotal }
-              const updated = insertHighScore(globalScoresLocal, newEntry)
+              const updated = insertHighScore(globalScoresRef.current, newEntry)
               const rank = updated.findIndex((e) => e === newEntry)
               if (rank !== -1) {
                 pendingEntryIndex = rank
-                globalScoresLocal = updated
-                setGlobalScores(updated)
+                applyGlobalScores(updated)
               }
               setGlobalRank(rank !== -1 ? rank : null)
             }
@@ -987,10 +993,9 @@ export function CameraStage() {
       stream?.getTracks().forEach((track) => track.stop())
       if (handleResize) window.removeEventListener('resize', handleResize)
     }
-    // globalScores is intentionally read once at mount only (as the
-    // initial value for this run's leaderboard tracking) — this effect
-    // sets up the camera/game session exactly once and must not re-run
-    // when the board updates mid-game.
+    // This effect sets up the camera/game session exactly once and must
+    // not re-run when the board updates mid-game — it reads the board
+    // via globalScoresRef instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
