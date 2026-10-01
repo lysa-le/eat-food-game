@@ -595,6 +595,9 @@ export function CameraStage() {
         updated[pendingEntryIndex],
         secondPlayerJoined ? 'together' : 'solo',
       ).then(refreshGlobalScores)
+      // Saving ends the round — the start menu's leaderboard already shows
+      // the new entry (from the optimistic update above).
+      returnToMenu()
     }
 
     controlsRef.current = {
@@ -1313,7 +1316,9 @@ export function CameraStage() {
                     editValue={initialsInput}
                     onEditChange={setInitialsInput}
                   />
-                  <button type="submit">Save</button>
+                  <button type="submit" className="camera-stage__action-button">
+                    Save
+                  </button>
                 </form>
               ) : (
                 <HighScoreBoard
@@ -1325,6 +1330,7 @@ export function CameraStage() {
           )}
           <button
             type="button"
+            className="camera-stage__action-button camera-stage__secondary-button"
             onClick={() => controlsRef.current.returnToMenu()}
           >
             Return to menu
@@ -1374,6 +1380,7 @@ export function CameraStage() {
           </div>
           <button
             type="button"
+            className="camera-stage__action-button camera-stage__secondary-button"
             onClick={() => controlsRef.current.returnToMenu()}
           >
             Return to menu
