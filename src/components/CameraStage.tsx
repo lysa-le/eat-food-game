@@ -102,6 +102,16 @@ type MenuView = 'main' | 'two-player' | 'online'
 
 /** Seconds counted down before an online game starts on both phones. */
 const ONLINE_COUNTDOWN_SECONDS = 3
+
+/** Face tracking's first frames after the model loads are very slow
+ * while the GPU warms up (several seconds on an iPad) — long enough to
+ * freeze the page, skip a countdown and miss the first chomps. Tracking
+ * only counts as ready once this many frames in a row each finish under
+ * WARMUP_FRAME_MS, or after WARMUP_MAX_MS so a slow device never gets
+ * stuck on "Loading…". */
+const WARMUP_SMOOTH_FRAMES = 10
+const WARMUP_FRAME_MS = 80
+const WARMUP_MAX_MS = 12000
 const HEART_ICON_URL = `${import.meta.env.BASE_URL}heart pixel art/heart pixel art 32x32.png`
 
 /**
@@ -421,7 +431,12 @@ export function CameraStage() {
   const [lobbyRole, setLobbyRole] = useState<LobbyRole | null>(
     initialGuestRoomId ? { kind: 'guest', roomId: initialGuestRoomId } : null,
   )
+  // countdownEndsAt (performance.now() ms) drives the countdown; the
+  // shown number is derived from it, so a stalled frame can delay the
+  // display but never skip or bunch up the numbers.
+  const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
+  const [trackingWarm, setTrackingWarm] = useState(false)
   const [side1, setSide1] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [side2, setSide2] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [versusWinner, setVersusWinner] = useState<
@@ -689,6 +704,10 @@ export function CameraStage() {
 
       setStatus('running')
 
+      const trackingStartedAt = performance.now()
+      let smoothFrames = 0
+      let warm = false
+
       /** Team mode: any player's chomp eats from the same shared pool. */
       const handleEatenFood = (eaten: FoodItem | null, now: number): void => {
         if (!eaten) return
@@ -867,6 +886,17 @@ export function CameraStage() {
           const rawNow = performance.now()
           const now = rawNow - pausedAccumulatedMs
           const result = faceLandmarker.detectForVideo(video, rawNow)
+          if (!warm) {
+            const frameMs = performance.now() - rawNow
+            smoothFrames = frameMs < WARMUP_FRAME_MS ? smoothFrames + 1 : 0
+            if (
+              smoothFrames >= WARMUP_SMOOTH_FRAMES ||
+              performance.now() - trackingStartedAt >= WARMUP_MAX_MS
+            ) {
+              warm = true
+              setTrackingWarm(true)
+            }
+          }
 
           if (screenLocal === 'playing') {
             if (gameModeLocal !== 'versus') {
@@ -1123,7 +1153,8 @@ export function CameraStage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const cameraReady = status === 'running' || status === 'no-face'
+  const cameraReady =
+    (status === 'running' || status === 'no-face') && trackingWarm
 
   const backToMainMenu = () => {
     setLobbyRole(null)
@@ -1146,21 +1177,25 @@ export function CameraStage() {
     controlsRef.current.selectGameMode('together')
     setLobbyRole(null)
     setMenuView('main')
+    setCountdownEndsAt(performance.now() + ONLINE_COUNTDOWN_SECONDS * 1000)
     setCountdown(ONLINE_COUNTDOWN_SECONDS)
   }
 
   useEffect(() => {
-    if (countdown === null) return
-    const timer = setTimeout(() => {
-      if (countdown > 1) {
-        setCountdown(countdown - 1)
-      } else {
+    if (countdownEndsAt === null) return
+    const tick = () => {
+      const msLeft = countdownEndsAt - performance.now()
+      if (msLeft <= 0) {
+        setCountdownEndsAt(null)
         setCountdown(null)
         controlsRef.current.startGame()
+      } else {
+        setCountdown(Math.ceil(msLeft / 1000))
       }
-    }, 1000)
-    return () => clearTimeout(timer)
-  }, [countdown])
+    }
+    const timer = setInterval(tick, 100)
+    return () => clearInterval(timer)
+  }, [countdownEndsAt])
 
   return (
     <div className="camera-stage">
