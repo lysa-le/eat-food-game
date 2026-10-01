@@ -441,6 +441,30 @@
   pointer-events: none;
 }
 
+/* Same banner style as the status HUD, moved to the top center for
+   the "Player 2 joined!" announcement. */
+.camera-stage__hud--top {
+  top: 1rem;
+  bottom: auto;
+  /* left: 50% caps shrink-to-fit width at half the screen, which wraps
+     the message on phones — keep it on one line. */
+  white-space: nowrap;
+}
+
+/* Between ~600-900px the top corners' score/level boxes leave too
+   little room in the middle, so drop the banner just below them. */
+@media (max-width: 900px) {
+  .camera-stage__hud--top {
+    top: 10rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .camera-stage__hud--top {
+    top: 6.75rem;
+  }
+}
+
 .camera-stage__error {
   color: #f87171;
 }

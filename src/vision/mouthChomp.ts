@@ -48,6 +48,42 @@ export function computeMouthCenter(landmarks: NormalizedLandmark[]): {
   return { x, y }
 }
 
+// Left/right face-oval edges (cheek to cheek), used for face size.
+const FACE_LEFT_EDGE = 234
+const FACE_RIGHT_EDGE = 454
+
+/**
+ * Face width in normalized video-frame units — a stand-in for how close
+ * the person is to the camera. Only meaningful relative to other faces
+ * in the same frame (see filterBackgroundFaces).
+ */
+export function computeFaceWidth(landmarks: NormalizedLandmark[]): number {
+  const left = landmarks[FACE_LEFT_EDGE]
+  const right = landmarks[FACE_RIGHT_EDGE]
+  return Math.hypot(left.x - right.x, left.y - right.y)
+}
+
+/**
+ * A second face counts as a player only if it's at least this fraction
+ * of the largest face's width — a friend leaning in beside the player
+ * is a similar size, someone walking past in the background is much
+ * smaller.
+ */
+export const MIN_RELATIVE_FACE_WIDTH = 0.6
+
+/**
+ * Returns the indices of faces close enough to the camera to play,
+ * relative to the closest (largest) face. A lone face always counts,
+ * however far away it is.
+ */
+export function filterBackgroundFaces(faceWidths: number[]): number[] {
+  const largest = Math.max(0, ...faceWidths)
+  return faceWidths
+    .map((width, index) => ({ width, index }))
+    .filter(({ width }) => width >= largest * MIN_RELATIVE_FACE_WIDTH)
+    .map(({ index }) => index)
+}
+
 interface Point {
   x: number
   y: number

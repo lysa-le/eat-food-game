@@ -3,7 +3,9 @@ import { getFaceLandmarker } from '../vision/faceLandmarker'
 import {
   ChompDetector,
   computeJawOpenScore,
+  computeFaceWidth,
   computeMouthCenter,
+  filterBackgroundFaces,
   TwoPlayerTracker,
 } from '../vision/mouthChomp'
 import type { FoodItem, ResolvedFood } from '../game/food'
@@ -52,13 +54,17 @@ type Status =
 
 type Screen = 'start' | 'playing' | 'paused' | 'game-over'
 
-/** 'solo': the original single-player experience — only the first
- * detected face is ever tracked. 'together': everyone shares one
- * score/lives (works for 1 or 2 players automatically, same underlying
- * pipeline as 'solo' but a second player is welcome to join in).
- * 'versus': two independent games side by side, split down the middle,
- * each with their own score/level/lives. */
-type GameMode = 'solo' | 'together' | 'versus'
+/** 'together' ("1 Player" in the menu): one shared score/lives — plays
+ * solo, but a friend who leans into frame joins automatically as
+ * Player 2. 'versus' ("2 Player"): two independent games side by side,
+ * split down the middle, each with their own score/level/lives. */
+type GameMode = 'together' | 'versus'
+
+/** How long a second face must stay in frame before it counts as
+ * Player 2 joining — filters out one-frame spurious detections. */
+const PLAYER_JOIN_CONFIRM_MS = 500
+/** How long the "Player 2 joined!" banner stays up. */
+const PLAYER_JOIN_BANNER_MS = 2500
 
 interface PopEffect {
   x: number
@@ -356,7 +362,8 @@ export function CameraStage() {
   const [level, setLevel] = useState(1)
   const [lives, setLives] = useState(STARTING_LIVES)
   const [screen, setScreen] = useState<Screen>('start')
-  const [gameMode, setGameMode] = useState<GameMode>('solo')
+  const [gameMode, setGameMode] = useState<GameMode>('together')
+  const [showJoinBanner, setShowJoinBanner] = useState(false)
   const [side1, setSide1] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [side2, setSide2] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [versusWinner, setVersusWinner] = useState<
@@ -435,7 +442,12 @@ export function CameraStage() {
     let scoreTotal = 0
     let pendingEntryIndex: number | null = null
     let screenLocal: Screen = 'start'
-    let gameModeLocal: GameMode = 'solo'
+    let gameModeLocal: GameMode = 'together'
+    // Whether a second player has joined this game (1 Player mode only).
+    // Drives the join banner and the leaderboard's solo/together tag.
+    let secondPlayerJoined = false
+    let secondFaceSince: number | null = null
+    let joinBannerTimer: ReturnType<typeof setTimeout> | undefined
     // Pausing halts the render loop entirely, but performance.now() keeps
     // advancing with real wall-clock time regardless. Without this offset,
     // every spawn/expiry/invincibility timestamp (all scheduled against
@@ -476,6 +488,10 @@ export function CameraStage() {
       invincibleUntil = 0
       scoreTotal = 0
       pendingEntryIndex = null
+      secondPlayerJoined = false
+      secondFaceSince = null
+      clearTimeout(joinBannerTimer)
+      setShowJoinBanner(false)
       screenLocal = 'playing'
       setScore(0)
       setGoodPoints(0)
@@ -512,9 +528,10 @@ export function CameraStage() {
       // submitGlobalScore's write lands and refreshGlobalScores refetches.
       applyGlobalScores(updated)
       setGlobalScoreSubmitted(true)
-      submitGlobalScore(updated[pendingEntryIndex], gameModeLocal).then(
-        refreshGlobalScores,
-      )
+      submitGlobalScore(
+        updated[pendingEntryIndex],
+        secondPlayerJoined ? 'together' : 'solo',
+      ).then(refreshGlobalScores)
     }
 
     controlsRef.current = {
@@ -799,7 +816,14 @@ export function CameraStage() {
           // player's last known position) rather than re-sorting by
           // position every frame, which would let identity flip when
           // players move relative to each other.
-          const faces = result.faceLandmarks.map((faceLandmarks, index) => {
+          // Drop faces far in the background (much smaller than the
+          // closest face) before assigning players, so a bystander
+          // walking past can't join or chomp.
+          const playableIndices = filterBackgroundFaces(
+            result.faceLandmarks.map(computeFaceWidth),
+          )
+          const faces = playableIndices.map((index) => {
+            const faceLandmarks = result.faceLandmarks[index]
             const mouthNorm = computeMouthCenter(faceLandmarks)
             const mouthCropped = remapNormalizedPoint(
               mouthNorm.x,
@@ -817,22 +841,36 @@ export function CameraStage() {
           const [p1Index, p2Index] = playerTracker.assign(
             faces.map((f) => ({ x: f.mouthX, y: f.mouthY })),
           )
-          // Solo only ever processes Player 1, but the tracker can still
-          // park the lone face in the Player 2 slot (e.g. after a bystander
-          // or a spurious second detection seeded it) — so in solo, fall
-          // back to whichever face was tracked rather than dropping it.
-          const soloIndex = gameModeLocal === 'solo' ? (p1Index ?? p2Index) : p1Index
-          const player1 = soloIndex !== null ? faces[soloIndex] : null
+          const player1 = p1Index !== null ? faces[p1Index] : null
           const player2 = p2Index !== null ? faces[p2Index] : null
+
+          // 1 Player mode: announce Player 2 once a second face has
+          // stayed in frame long enough to be a real person.
+          if (
+            gameModeLocal === 'together' &&
+            screenLocal === 'playing' &&
+            !secondPlayerJoined
+          ) {
+            if (player1 && player2) {
+              secondFaceSince ??= now
+              if (now - secondFaceSince >= PLAYER_JOIN_CONFIRM_MS) {
+                secondPlayerJoined = true
+                setShowJoinBanner(true)
+                joinBannerTimer = setTimeout(
+                  () => setShowJoinBanner(false),
+                  PLAYER_JOIN_BANNER_MS,
+                )
+              }
+            } else {
+              secondFaceSince = null
+            }
+          }
 
           if (player1 || player2) {
             setStatus('running')
             // Only show the P1/P2 markers once a second player actually
             // joins — a solo player's screen stays exactly as before.
-            // Solo mode never shows them, even if a bystander's face
-            // happens to be detected, since that face is never processed.
-            const showMarkers =
-              gameModeLocal !== 'solo' && Boolean(player1 && player2)
+            const showMarkers = Boolean(player1 && player2)
 
             const processPlayer = (
               face: { mouthX: number; mouthY: number; jawOpenScore: number },
@@ -886,7 +924,7 @@ export function CameraStage() {
             if (player1 && p1Active) {
               processPlayer(player1, chompDetector1, 1, 'P1', '#38bdf8')
             }
-            if (player2 && gameModeLocal !== 'solo' && p2Active) {
+            if (player2 && p2Active) {
               processPlayer(player2, chompDetector2, 2, 'P2', '#f472b6')
             }
           } else {
@@ -990,6 +1028,7 @@ export function CameraStage() {
     return () => {
       cancelled = true
       cancelAnimationFrame(rafId)
+      clearTimeout(joinBannerTimer)
       stream?.getTracks().forEach((track) => track.stop())
       if (handleResize) window.removeEventListener('resize', handleResize)
     }
@@ -1149,24 +1188,13 @@ export function CameraStage() {
             <button
               type="button"
               className={
-                gameMode === 'solo'
-                  ? 'camera-stage__mode-button camera-stage__mode-button--active'
-                  : 'camera-stage__mode-button'
-              }
-              onClick={() => controlsRef.current.selectGameMode('solo')}
-            >
-              1 Player
-            </button>
-            <button
-              type="button"
-              className={
                 gameMode === 'together'
                   ? 'camera-stage__mode-button camera-stage__mode-button--active'
                   : 'camera-stage__mode-button'
               }
               onClick={() => controlsRef.current.selectGameMode('together')}
             >
-              2 Players (Team)
+              1 Player
             </button>
             <button
               type="button"
@@ -1177,7 +1205,7 @@ export function CameraStage() {
               }
               onClick={() => controlsRef.current.selectGameMode('versus')}
             >
-              2 Players (Vs)
+              2 Player
             </button>
           </div>
 
@@ -1303,6 +1331,12 @@ export function CameraStage() {
               Camera error: {errorMessage}
             </p>
           )}
+        </div>
+      )}
+
+      {showJoinBanner && screen === 'playing' && (
+        <div className="camera-stage__hud camera-stage__hud--top">
+          <p>Player 2 joined!</p>
         </div>
       )}
 
