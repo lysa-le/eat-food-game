@@ -1276,9 +1276,6 @@ export function CameraStage() {
                     controlsRef.current.submitInitials(initialsInput)
                   }}
                 >
-                  <p className="camera-stage__initials-prompt">
-                    Enter your initials
-                  </p>
                   <HighScoreBoard
                     entries={globalScores}
                     highlightIndex={globalRank}

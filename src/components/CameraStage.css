@@ -235,13 +235,6 @@
   color: #fde047;
 }
 
-/* Same quiet treatment as the start screen's subtitle — a hint for the
-   next step, not a headline. */
-.camera-stage__initials-prompt {
-  font-size: 0.6rem !important;
-  color: #cbd5e1;
-}
-
 /* Matches .camera-stage__overlay h1's size — the winner announcement is
    as much the headline of this screen as "Game Over" itself. */
 .camera-stage__versus-winner-status {
