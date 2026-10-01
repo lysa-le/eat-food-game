@@ -1,13 +1,22 @@
 import {
+  collection,
+  deleteDoc,
   doc,
+  getDocs,
+  limit,
   onSnapshot,
+  query,
   serverTimestamp,
   setDoc,
   Timestamp,
   updateDoc,
+  where,
   type Unsubscribe,
 } from 'firebase/firestore'
 import { getDb, isGlobalLeaderboardConfigured } from './globalLeaderboard'
+import { effectiveRoomStatus, type RoomStatus } from './roomStatus'
+
+export type { RoomStatus }
 
 /**
  * Online 2 Player rooms. The host creates a room and shares its link;
@@ -21,8 +30,6 @@ import { getDb, isGlobalLeaderboardConfigured } from './globalLeaderboard'
  *
  * Transitions are enforced by firestore.rules.
  */
-export type RoomStatus = 'waiting' | 'ready' | 'started' | 'closed'
-
 const ROOMS_COLLECTION = 'rooms'
 /** Rooms are only for setting up a game; firestore.rules caps this. */
 const ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
@@ -30,6 +37,11 @@ const ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
  * (there's no code to type, so it never needs to be short). */
 const ROOM_ID_LENGTH = 20
 const ROOM_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
+/** firestore.rules lets anyone delete a room 24h past its expiry; asking
+ * for 25h leaves an hour of slack for a phone clock that runs fast. */
+const CLEANUP_AFTER_EXPIRY_MS = 25 * 60 * 60 * 1000
+/** Matches the list limit in firestore.rules. */
+const CLEANUP_BATCH_SIZE = 10
 
 /** Rooms live in the same Firebase project as the leaderboard. */
 export function isOnlineAvailable(): boolean {
@@ -72,7 +84,31 @@ export async function createRoom(): Promise<string> {
     createdAt: serverTimestamp(),
     expiresAt: Timestamp.fromMillis(Date.now() + ROOM_LIFETIME_MS),
   })
+  // Free-tier housekeeping (TTL policies need billing): each new room
+  // clears out a few long-expired ones. Never blocks or fails creation.
+  void cleanupExpiredRooms()
   return roomId
+}
+
+export async function cleanupExpiredRooms(): Promise<number> {
+  try {
+    const expired = await getDocs(
+      query(
+        collection(getDb(), ROOMS_COLLECTION),
+        where(
+          'expiresAt',
+          '<',
+          Timestamp.fromMillis(Date.now() - CLEANUP_AFTER_EXPIRY_MS),
+        ),
+        limit(CLEANUP_BATCH_SIZE),
+      ),
+    )
+    await Promise.all(expired.docs.map((d) => deleteDoc(d.ref)))
+    return expired.size
+  } catch (err) {
+    console.warn('Expired room cleanup skipped', err)
+    return -1
+  }
 }
 
 function setStatus(roomId: string, status: RoomStatus): Promise<void> {
@@ -86,7 +122,7 @@ export const startRoom = (roomId: string) =>
   updateDoc(roomRef(roomId), { status: 'started', startedAt: serverTimestamp() })
 
 /** Calls back with the room's status on every change, or null if the
- * room doesn't exist or can't be read. */
+ * room doesn't exist or can't be read. Expired rooms report 'closed'. */
 export function watchRoom(
   roomId: string,
   onChange: (status: RoomStatus | null) => void,
@@ -94,8 +130,15 @@ export function watchRoom(
   return onSnapshot(
     roomRef(roomId),
     (snapshot) => {
-      const status = snapshot.data()?.status
-      onChange(typeof status === 'string' ? (status as RoomStatus) : null)
+      const data = snapshot.data()
+      const expiresAt = data?.expiresAt
+      onChange(
+        effectiveRoomStatus(
+          data?.status,
+          expiresAt instanceof Timestamp ? expiresAt.toMillis() : null,
+          Date.now(),
+        ),
+      )
     },
     (err) => {
       console.error('Room listener failed', err)
