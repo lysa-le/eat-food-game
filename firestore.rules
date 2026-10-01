@@ -30,6 +30,56 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Online 2 Player rooms (src/game/onlineRoom.ts). The room ID is a
+    // long random string in the shared link, so knowing it is what lets
+    // someone join. Only rooms long past expiry can be listed or deleted
+    // — that's the in-game cleanup, since TTL policies need billing.
+    match /rooms/{roomId} {
+      allow get: if true;
+      allow list: if isLongExpired(resource.data)
+        && request.query.limit <= 10;
+      allow create: if isValidNewRoom(roomId, request.resource.data);
+      allow update: if isValidRoomUpdate(resource.data, request.resource.data);
+      allow delete: if isLongExpired(resource.data);
+    }
+
+    function isLongExpired(room) {
+      return room.expiresAt < request.time - duration.value(24, 'h');
+    }
+
+    function isValidNewRoom(roomId, data) {
+      return roomId.size() >= 16
+        && data.keys().hasOnly(['status', 'createdAt', 'expiresAt'])
+        && data.keys().hasAll(['status', 'createdAt', 'expiresAt'])
+        && data.status == 'waiting'
+        && data.createdAt == request.time
+        && data.expiresAt is timestamp
+        && data.expiresAt > request.time
+        && data.expiresAt <= request.time + duration.value(7, 'h');
+    }
+
+    // waiting <-> ready (friend joins/leaves), ready -> started (host
+    // presses Start, stamped with server time), anything -> closed. Only
+    // closing is allowed once a room has expired.
+    function isValidRoomUpdate(before, after) {
+      let changed = after.diff(before).affectedKeys();
+      let from = before.status;
+      let to = after.status;
+      let open = before.expiresAt > request.time;
+      return (
+          open && from == 'ready' && to == 'started'
+          && changed.hasOnly(['status', 'startedAt'])
+          && after.startedAt == request.time
+        ) || (
+          changed.hasOnly(['status'])
+          && (
+            (open && from == 'waiting' && to == 'ready')
+            || (open && from == 'ready' && to == 'waiting')
+            || (from != 'closed' && to == 'closed')
+          )
+        );
+    }
+
     // Everything else stays closed until a feature needs it.
     match /{document=**} {
       allow read, write: if false;
