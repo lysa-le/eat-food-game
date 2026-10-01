@@ -83,7 +83,6 @@ interface GameControls {
   startGame: () => void
   pauseGame: () => void
   resumeGame: () => void
-  resetGame: () => void
   returnToMenu: () => void
   submitInitials: (initials: string) => void
   selectGameMode: (mode: GameMode) => void
@@ -386,7 +385,6 @@ export function CameraStage() {
     startGame: () => {},
     pauseGame: () => {},
     resumeGame: () => {},
-    resetGame: () => {},
     returnToMenu: () => {},
     submitInitials: () => {},
     selectGameMode: () => {},
@@ -542,9 +540,8 @@ export function CameraStage() {
       if (renderLoop) rafId = requestAnimationFrame(renderLoop)
     }
 
-    /** Clears all game state, then either starts a new round ('playing')
-     * or goes back to the start menu ('start'). */
-    const resetToScreen = (next: 'playing' | 'start') => {
+    /** Clears all game state and goes back to the start menu. */
+    const returnToMenu = () => {
       foodManager.reset()
       playerTracker.reset()
       popEffects.length = 0
@@ -558,7 +555,7 @@ export function CameraStage() {
       secondFaceSince = null
       clearTimeout(joinBannerTimer)
       setShowJoinBanner(false)
-      screenLocal = next
+      screenLocal = 'start'
       setScore(0)
       setGoodPoints(0)
       setJunkPoints(0)
@@ -574,10 +571,8 @@ export function CameraStage() {
       setSide2(snapshotSide(side2Runtime))
       setVersusWinner(null)
 
-      setScreen(next)
+      setScreen('start')
     }
-    const resetGame = () => resetToScreen('playing')
-    const returnToMenu = () => resetToScreen('start')
 
     const selectGameMode = (mode: GameMode) => {
       if (screenLocal !== 'start') return
@@ -606,7 +601,6 @@ export function CameraStage() {
       startGame,
       pauseGame,
       resumeGame,
-      resetGame,
       returnToMenu,
       submitInitials,
       selectGameMode,
@@ -1331,13 +1325,6 @@ export function CameraStage() {
           )}
           <button
             type="button"
-            onClick={() => controlsRef.current.resetGame()}
-          >
-            Play Again
-          </button>
-          <button
-            type="button"
-            className="camera-stage__secondary-button"
             onClick={() => controlsRef.current.returnToMenu()}
           >
             Return to menu
@@ -1387,13 +1374,6 @@ export function CameraStage() {
           </div>
           <button
             type="button"
-            onClick={() => controlsRef.current.resetGame()}
-          >
-            Play Again
-          </button>
-          <button
-            type="button"
-            className="camera-stage__secondary-button"
             onClick={() => controlsRef.current.returnToMenu()}
           >
             Return to menu
