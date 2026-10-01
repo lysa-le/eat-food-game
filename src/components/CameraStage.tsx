@@ -224,6 +224,36 @@ const STARTING_LIVES = 3
 const INVINCIBILITY_MS = 1200
 
 /**
+ * Pause/resume glyph drawn as SVG rather than the ⏸/▶ characters, which
+ * iOS renders as color emoji. Orange fill (currentColor) with the same
+ * dark-blue outline + offset drop shadow as the title text.
+ */
+function PauseButtonIcon({ paused }: { paused: boolean }) {
+  const shapes = paused ? (
+    <polygon points="7,4 19,12 7,20" />
+  ) : (
+    <>
+      <rect x="5" y="4" width="5" height="16" />
+      <rect x="14" y="4" width="5" height="16" />
+    </>
+  )
+  return (
+    <svg
+      className="camera-stage__pause-icon"
+      viewBox="-1 -1 28 28"
+      aria-hidden="true"
+    >
+      <g fill="#1e1b4b" transform="translate(2 2)">
+        {shapes}
+      </g>
+      <g fill="currentColor" stroke="#1e1b4b" strokeWidth="1.5">
+        {shapes}
+      </g>
+    </svg>
+  )
+}
+
+/**
  * One player's independent game state in versus (split-screen) mode.
  * Mirrors the same "closure variables are the source of truth, React
  * state is just a display mirror" pattern used for together mode's
@@ -1165,7 +1195,7 @@ export function CameraStage() {
           }
           aria-label={screen === 'playing' ? 'Pause' : 'Resume'}
         >
-          {screen === 'playing' ? '⏸' : '▶'}
+          <PauseButtonIcon paused={screen === 'paused'} />
         </button>
       )}
 
@@ -1237,7 +1267,7 @@ export function CameraStage() {
                 <p className="camera-stage__high-score">
                   {globalRank === 0
                     ? 'New high score!'
-                    : 'You made the global top 5!'}
+                    : 'You made the top 5!'}
                 </p>
               )}
               {globalRank !== null && !globalScoreSubmitted ? (
