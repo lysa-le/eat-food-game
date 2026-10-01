@@ -1013,23 +1013,8 @@ export function CameraStage() {
 
       {gameMode !== 'versus' && (
         <>
-          <div className="camera-stage__lives">
-            {Array.from({ length: STARTING_LIVES }, (_, i) => (
-              <img
-                key={i}
-                src="/heart pixel art/heart pixel art 32x32.png"
-                alt={i < lives ? 'Life' : 'Lost life'}
-                className={
-                  i < lives
-                    ? 'camera-stage__heart-icon'
-                    : 'camera-stage__heart-icon camera-stage__heart-icon--empty'
-                }
-              />
-            ))}
-          </div>
-
           <div className="camera-stage__score">
-            <div className="camera-stage__score-row camera-stage__top-score">
+            <div className="camera-stage__score-row camera-stage__top-score camera-stage__hud-divider">
               <span>Top</span>
               <span className="camera-stage__score-value">
                 {globalScores[0]?.score ?? 0}
@@ -1043,9 +1028,23 @@ export function CameraStage() {
           </div>
 
           <div className="camera-stage__level-box">
-            <div className="camera-stage__score-row">
+            <div className="camera-stage__score-row camera-stage__hud-divider">
               <span>Level</span>
               <span className="camera-stage__level-value">{level}</span>
+            </div>
+            <div className="camera-stage__level-lives">
+              {Array.from({ length: STARTING_LIVES }, (_, i) => (
+                <img
+                  key={i}
+                  src="/heart pixel art/heart pixel art 32x32.png"
+                  alt={i < lives ? 'Life' : 'Lost life'}
+                  className={
+                    i < lives
+                      ? 'camera-stage__heart-icon camera-stage__heart-icon--small'
+                      : 'camera-stage__heart-icon camera-stage__heart-icon--small camera-stage__heart-icon--empty'
+                  }
+                />
+              ))}
             </div>
           </div>
         </>
@@ -1059,7 +1058,7 @@ export function CameraStage() {
               <span>Score</span>
               <span className="camera-stage__score-value">{side1.score}</span>
             </div>
-            <div className="camera-stage__score-row">
+            <div className="camera-stage__score-row camera-stage__hud-divider">
               <span>Lv</span>
               <span className="camera-stage__level-value">{side1.level}</span>
             </div>
@@ -1089,7 +1088,7 @@ export function CameraStage() {
               <span>Score</span>
               <span className="camera-stage__score-value">{side2.score}</span>
             </div>
-            <div className="camera-stage__score-row">
+            <div className="camera-stage__score-row camera-stage__hud-divider">
               <span>Lv</span>
               <span className="camera-stage__level-value">{side2.level}</span>
             </div>

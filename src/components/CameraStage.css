@@ -71,18 +71,25 @@
   line-height: 1;
 }
 
+/* Divider under a HUD row: "Top" in the score box, "Level" above the
+   hearts, and "Lv" above the hearts in the versus side HUD. Uses
+   currentColor so it picks up each box's own orange/green. */
+.camera-stage__hud-divider {
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.1rem;
+  border-bottom: 2px solid color-mix(in srgb, currentColor 40%, transparent);
+}
+
 /* Secondary to the current score — smaller, dimmer, a goal to beat
    rather than the headline number. */
 .camera-stage__top-score {
-  padding-bottom: 0.6rem;
-  margin-bottom: 0.1rem;
-  border-bottom: 2px solid rgba(251, 146, 60, 0.4);
   opacity: 0.75;
 }
 
 .camera-stage__level-box {
   right: 1.25rem;
-  padding: 1rem 1.5rem;
+  /* Same padding as .camera-stage__score so the two boxes match height. */
+  padding: 1.75rem 1.5rem;
   /* Let the row below stretch full-width so its space-between actually
      spreads "Level" left and the number right, matching .camera-stage__score. */
   align-items: stretch;
@@ -91,6 +98,16 @@
 .camera-stage__level-value {
   font-size: 1.5rem;
   line-height: 1;
+}
+
+/* Hearts row under "Level" — exactly one score-value line tall, so the
+   level box matches the score box's Top + Score rows. */
+.camera-stage__level-lives {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  height: 1.5rem;
 }
 
 /* Nested inside .camera-stage__score, not its own bordered box — score
@@ -110,16 +127,6 @@
   justify-content: space-between;
   gap: 1rem;
   font-size: 0.65rem;
-}
-
-.camera-stage__lives {
-  position: absolute;
-  top: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 0.5rem;
-  pointer-events: none;
 }
 
 .camera-stage__heart-icon {
@@ -635,7 +642,11 @@
   }
 
   .camera-stage__level-box {
-    padding: 0.6rem 0.85rem;
+    padding: 1rem 0.85rem;
+  }
+
+  .camera-stage__level-lives {
+    height: 1rem;
   }
 
   .camera-stage__score-row,
@@ -649,10 +660,6 @@
 
   .camera-stage__level-value {
     font-size: 1rem;
-  }
-
-  .camera-stage__lives {
-    gap: 0.25rem;
   }
 
   .camera-stage__heart-icon {
