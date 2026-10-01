@@ -65,6 +65,13 @@ type GameMode = 'together' | 'versus'
 const PLAYER_JOIN_CONFIRM_MS = 500
 /** How long the "Player 2 joined!" banner stays up. */
 const PLAYER_JOIN_BANNER_MS = 2500
+/** How long no face must be detected before "Center yourself in frame"
+ * shows — tracking drops a frame or two on fast moves, which shouldn't
+ * flash the banner. */
+const NO_FACE_SHOW_DELAY_MS = 750
+/** Once shown, the banner stays at least this long so it's readable,
+ * even if the face is found again right away. */
+const NO_FACE_MIN_VISIBLE_MS = 1500
 
 interface PopEffect {
   x: number
@@ -478,6 +485,30 @@ export function CameraStage() {
     // Drives the join banner and the leaderboard's solo/together tag.
     let secondPlayerJoined = false
     let secondFaceSince: number | null = null
+    // "Center yourself in frame" banner timing (wall-clock ms).
+    let faceMissingSince: number | null = null
+    let noFaceShownAt: number | null = null
+    const updateFacePresence = (faceFound: boolean, at: number) => {
+      if (faceFound) {
+        faceMissingSince = null
+        if (
+          noFaceShownAt === null ||
+          at - noFaceShownAt >= NO_FACE_MIN_VISIBLE_MS
+        ) {
+          noFaceShownAt = null
+          setStatus('running')
+        }
+        return
+      }
+      faceMissingSince ??= at
+      if (
+        noFaceShownAt === null &&
+        at - faceMissingSince >= NO_FACE_SHOW_DELAY_MS
+      ) {
+        noFaceShownAt = at
+        setStatus('no-face')
+      }
+    }
     let joinBannerTimer: ReturnType<typeof setTimeout> | undefined
     // Pausing halts the render loop entirely, but performance.now() keeps
     // advancing with real wall-clock time regardless. Without this offset,
@@ -897,8 +928,9 @@ export function CameraStage() {
             }
           }
 
+          updateFacePresence(Boolean(player1 || player2), rawNow)
+
           if (player1 || player2) {
-            setStatus('running')
             // Only show the P1/P2 markers once a second player actually
             // joins — a solo player's screen stays exactly as before.
             const showMarkers = Boolean(player1 && player2)
@@ -958,8 +990,6 @@ export function CameraStage() {
             if (player2 && p2Active) {
               processPlayer(player2, chompDetector2, 2, 'P2', '#f472b6')
             }
-          } else {
-            setStatus('no-face')
           }
 
           if (screenLocal === 'playing') {
