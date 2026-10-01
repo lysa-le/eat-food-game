@@ -82,6 +82,7 @@ interface GameControls {
 }
 
 const INITIALS_MAX_LENGTH = 3
+const HEART_ICON_URL = `${import.meta.env.BASE_URL}heart pixel art/heart pixel art 32x32.png`
 
 /**
  * Renders the classic arcade "enter your initials" widget: three
@@ -1075,7 +1076,7 @@ export function CameraStage() {
               {Array.from({ length: STARTING_LIVES }, (_, i) => (
                 <img
                   key={i}
-                  src="/heart pixel art/heart pixel art 32x32.png"
+                  src={HEART_ICON_URL}
                   alt={i < lives ? 'Life' : 'Lost life'}
                   className={
                     i < lives
@@ -1108,7 +1109,7 @@ export function CameraStage() {
                 {Array.from({ length: STARTING_LIVES }, (_, i) => (
                   <img
                     key={i}
-                    src="/heart pixel art/heart pixel art 32x32.png"
+                    src={HEART_ICON_URL}
                     alt={i < side1.lives ? 'Life' : 'Lost life'}
                     className={
                       i < side1.lives
@@ -1138,7 +1139,7 @@ export function CameraStage() {
                 {Array.from({ length: STARTING_LIVES }, (_, i) => (
                   <img
                     key={i}
-                    src="/heart pixel art/heart pixel art 32x32.png"
+                    src={HEART_ICON_URL}
                     alt={i < side2.lives ? 'Life' : 'Lost life'}
                     className={
                       i < side2.lives

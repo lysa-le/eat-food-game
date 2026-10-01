@@ -1,5 +1,5 @@
-const GOOD_EAT_SOUND_URL = '/carrotnom.mp3'
-const LEVEL_UP_SOUND_URL = '/sound-retro-level-up.mp3'
+const GOOD_EAT_SOUND_URL = `${import.meta.env.BASE_URL}carrotnom.mp3`
+const LEVEL_UP_SOUND_URL = `${import.meta.env.BASE_URL}sound-retro-level-up.mp3`
 
 let audioContext: AudioContext | null = null
 const sampleBufferCache = new Map<string, Promise<AudioBuffer>>()
