@@ -1,0 +1,28 @@
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  /* Stops mobile browsers' pull-to-refresh / rubber-band bounce from
+     fighting the full-screen camera view. */
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Long-pressing the live camera canvas would otherwise pop up a
+     "Save Image" context menu on mobile; selecting HUD/overlay text
+     mid-chomp isn't useful either. Form controls (the initials input)
+     are exempt from this by the browser regardless. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}

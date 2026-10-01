@@ -1,0 +1,694 @@
+.camera-stage {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  overflow: hidden;
+}
+
+.camera-stage__video {
+  display: none;
+}
+
+.camera-stage__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.camera-stage__score,
+.camera-stage__level-box {
+  position: absolute;
+  top: 1rem;
+  box-sizing: border-box;
+  /* Wide enough for a 7-digit score ("0000000") alongside its label on
+     the same right-aligned row — matches the versus mode side HUD. */
+  width: 13rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.5);
+  border: 3px solid #fb923c;
+  border-radius: 0.5rem;
+  color: #fb923c;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  pointer-events: none;
+  /* Same fill + outline treatment as the title card. */
+  text-shadow:
+    -1px -1px 0 #1e1b4b,
+    1px -1px 0 #1e1b4b,
+    -1px 1px 0 #1e1b4b,
+    1px 1px 0 #1e1b4b,
+    3px 3px 0 #1e1b4b;
+}
+
+.camera-stage__score {
+  left: 1.25rem;
+  padding: 1.75rem 1.5rem;
+  /* Rows below need to stretch full-width so their own space-between
+     lines up labels on the left and values on the right, matching the
+     breakdown rows underneath. */
+  align-items: stretch;
+}
+
+/* Shared ledger-row layout: label left, value right. Used for "Top",
+   "Score", and (separately, as .camera-stage__breakdown-row) "Food"/
+   "Junk" — all four lines align to the same left/right edges. */
+.camera-stage__score-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  width: 100%;
+  font-size: 0.65rem;
+}
+
+.camera-stage__score-value {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+/* Secondary to the current score — smaller, dimmer, a goal to beat
+   rather than the headline number. */
+.camera-stage__top-score {
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.1rem;
+  border-bottom: 2px solid rgba(251, 146, 60, 0.4);
+  opacity: 0.75;
+}
+
+.camera-stage__level-box {
+  right: 1.25rem;
+  padding: 1rem 1.5rem;
+  /* Let the row below stretch full-width so its space-between actually
+     spreads "Level" left and the number right, matching .camera-stage__score. */
+  align-items: stretch;
+}
+
+.camera-stage__level-value {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+/* Nested inside .camera-stage__score, not its own bordered box — score
+   and its breakdown are the same piece of information. */
+.camera-stage__breakdown {
+  width: 11rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 0.75rem;
+  margin-top: 0.25rem;
+  border-top: 2px solid rgba(251, 146, 60, 0.4);
+}
+
+.camera-stage__breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.65rem;
+}
+
+.camera-stage__lives {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.camera-stage__heart-icon {
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+}
+
+.camera-stage__heart-icon--empty {
+  filter: grayscale(1) brightness(0.4);
+}
+
+
+.camera-stage__flash {
+  position: absolute;
+  inset: 0;
+  background: #fde047;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.camera-stage__flash--hazard {
+  /* Matches the heart icon's exact fill red (sampled from the PNG). */
+  background: #ff0000;
+}
+
+.camera-stage__flash--active {
+  animation: chomp-flash 200ms ease-out;
+}
+
+@keyframes chomp-flash {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.camera-stage__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: rgba(0, 0, 0, 0.75);
+  color: #f8fafc;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  text-align: center;
+  padding: 1.5rem;
+}
+
+.camera-stage__overlay h1 {
+  font-size: 1.75rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.camera-stage__overlay--game-over h1 {
+  /* Matches the heart icon's exact fill red (sampled from the PNG). */
+  color: #ff0000;
+}
+
+.camera-stage__title {
+  font-size: 4.5rem;
+  color: #fb923c;
+  /* A thin solid outline via layered text-shadow (rather than
+     -webkit-text-stroke, which visibly mangled this pixel font's
+     blocky glyphs) plus one offset shadow for a bit of pop. The fill
+     color is untouched, so it stays fully legible against the dark
+     overlay background. */
+  text-shadow:
+    -2px -2px 0 #1e1b4b,
+    2px -2px 0 #1e1b4b,
+    -2px 2px 0 #1e1b4b,
+    2px 2px 0 #1e1b4b,
+    6px 6px 0 #1e1b4b;
+}
+
+.camera-stage__overlay p {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.camera-stage__overlay-subtitle {
+  font-size: 0.6rem !important;
+  color: #cbd5e1;
+  max-width: 28rem;
+  line-height: 2;
+}
+
+.camera-stage__high-score {
+  font-size: 0.75rem !important;
+  color: #fde047;
+}
+
+/* Matches .camera-stage__overlay h1's size — the winner announcement is
+   as much the headline of this screen as "Game Over" itself. */
+.camera-stage__versus-winner-status {
+  font-size: 1.75rem !important;
+  line-height: 1.4;
+  margin: 0;
+  color: #fde047;
+}
+
+.camera-stage__leaderboard {
+  list-style: none;
+  margin: 0.25rem 0;
+  padding: 0.75rem 1.25rem;
+  border: 2px solid #4ade80;
+  border-radius: 0.25rem;
+  background: rgba(0, 0, 0, 0.4);
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: #4ade80;
+  min-width: 16rem;
+}
+
+.camera-stage__leaderboard-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0;
+}
+
+.camera-stage__leaderboard-row--highlight {
+  color: #fde047;
+  animation: leaderboard-blink 1s steps(1) infinite;
+}
+
+.camera-stage__leaderboard-row--editing {
+  /* Blinking a live text input looks like a rendering glitch, not a
+     retro flourish — keep the highlight color, drop the blink. */
+  animation: none;
+}
+
+@keyframes leaderboard-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.camera-stage__leaderboard-rank {
+  width: 1.5rem;
+  text-align: left;
+}
+
+.camera-stage__leaderboard-initials {
+  flex: 1;
+  text-align: left;
+  min-width: 3rem;
+}
+
+.camera-stage__initials-slots {
+  position: relative;
+  display: flex;
+  gap: 0.4em;
+  flex: 1;
+  min-width: 3rem;
+}
+
+.camera-stage__initials-slot {
+  display: inline-flex;
+  justify-content: center;
+  width: 1em;
+  border-bottom: 2px solid currentColor;
+  padding-bottom: 0.2em;
+}
+
+.camera-stage__initials-char {
+  line-height: 1;
+}
+
+.camera-stage__initials-char--cursor {
+  animation: initials-cursor-blink 1s steps(1) infinite;
+}
+
+@keyframes initials-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.camera-stage__initials-hidden-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: text;
+}
+
+.camera-stage__leaderboard-score {
+  text-align: right;
+  min-width: 5.5rem;
+}
+
+.camera-stage__initials-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Every button in the game: removes the ~300ms tap delay / accidental
+   double-tap-zoom on touchscreens, and the default blue tap-highlight
+   flash mobile browsers draw on active elements. */
+.camera-stage button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.camera-stage__overlay button {
+  margin-top: 0.75rem;
+  padding: 0.85rem 1.75rem;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 0.85rem;
+  color: #0f172a;
+  background: #4ade80;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.camera-stage__overlay button:hover {
+  background: #86efac;
+}
+
+.camera-stage__overlay button:disabled {
+  background: #64748b;
+  cursor: default;
+}
+
+.camera-stage__pause-button {
+  position: absolute;
+  bottom: 1.25rem;
+  right: 1.25rem;
+  /* Above .camera-stage__overlay (z-index 10) — while paused, this
+     button must stay visible/clickable on top of the "Paused" overlay
+     so the touchpoint doesn't move to resume. */
+  z-index: 11;
+  width: 3.75rem;
+  height: 3.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #fb923c;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fb923c;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 1.5rem;
+  /* Same fill + outline treatment as the title card. */
+  text-shadow:
+    -1px -1px 0 #1e1b4b,
+    1px -1px 0 #1e1b4b,
+    -1px 1px 0 #1e1b4b,
+    1px 1px 0 #1e1b4b,
+    2px 2px 0 #1e1b4b;
+  cursor: pointer;
+}
+
+.camera-stage__pause-button:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.camera-stage__hud {
+  position: absolute;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 1.25rem;
+  border: 3px solid #fb923c;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fb923c;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 0.6rem;
+  /* Same fill + outline treatment as the title card. */
+  text-shadow:
+    -1px -1px 0 #1e1b4b,
+    1px -1px 0 #1e1b4b,
+    -1px 1px 0 #1e1b4b,
+    1px 1px 0 #1e1b4b,
+    3px 3px 0 #1e1b4b;
+  pointer-events: none;
+}
+
+.camera-stage__credit {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Above .camera-stage__overlay (z-index 10) — shown only on the start
+     and game-over screens, which are both covered by that overlay. */
+  z-index: 11;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 0.45rem;
+  color: #f8fafc;
+  pointer-events: none;
+}
+
+.camera-stage__error {
+  color: #f87171;
+}
+
+.camera-stage__mode-select {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.camera-stage__mode-select .camera-stage__mode-button {
+  margin-top: 0;
+  padding: 0.6rem 1.25rem;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 0.6rem;
+  color: #fb923c;
+  background: transparent;
+  border: 2px solid #fb923c;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.camera-stage__mode-select .camera-stage__mode-button--active {
+  color: #0f172a;
+  background: #fb923c;
+}
+
+/* Overrides the generic .camera-stage__overlay button:hover (green) — an
+   outline (unselected) pill fills orange on hover, with the label
+   switching to the title's dark-blue outline color for contrast. */
+.camera-stage__mode-select .camera-stage__mode-button:hover {
+  background: #fb923c;
+  color: #1e1b4b;
+}
+
+/* An already-active pill just lightens on hover, the same treatment as
+   the Start button (#4ade80 -> #86efac) — it's already "selected", so
+   hover shouldn't make it look like the outline state. */
+.camera-stage__mode-select .camera-stage__mode-button--active:hover {
+  background: #fdba74;
+  border-color: #fdba74;
+  color: #0f172a;
+}
+
+/* Split-screen needs real horizontal room for two independent zones —
+   hide the option below a desktop-ish width rather than offer a mode
+   that won't be playable on a phone. */
+@media (max-width: 820px) {
+  .camera-stage__mode-select .camera-stage__mode-button--versus {
+    display: none;
+  }
+}
+
+/* Per-player HUD for versus mode, replacing the shared score/level/lives
+   boxes. Positioned left/right to match where each player's zone lands
+   on screen (see side1Runtime/side2Runtime xRange comments in
+   CameraStage.tsx — player 1 is screen-left, player 2 screen-right). */
+.camera-stage__side-hud {
+  position: absolute;
+  top: 1rem;
+  box-sizing: border-box;
+  /* Wide enough for a 7-digit score ("0000000") alongside the "Score"
+     label on the same right-aligned row. */
+  width: 13rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  padding: 0.85rem 1rem;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 0.5rem;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  pointer-events: none;
+  text-shadow:
+    -1px -1px 0 #1e1b4b,
+    1px -1px 0 #1e1b4b,
+    -1px 1px 0 #1e1b4b,
+    1px 1px 0 #1e1b4b,
+    3px 3px 0 #1e1b4b;
+}
+
+.camera-stage__side-hud--p1 {
+  left: 1.25rem;
+  /* Same orange as the single-player score/level containers. */
+  border: 3px solid #fb923c;
+  color: #fb923c;
+}
+
+.camera-stage__side-hud--p2 {
+  right: 1.25rem;
+  /* Same green as the leaderboard. */
+  border: 3px solid #4ade80;
+  color: #4ade80;
+}
+
+.camera-stage__side-hud-label {
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.camera-stage__side-hud-lives {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  height: 34px;
+  margin-top: 0.15rem;
+}
+
+/* Matches .camera-stage__score-value's line height (1.5rem), per the
+   score/level values it sits alongside in the side HUD. */
+.camera-stage__heart-icon--small {
+  width: 24px;
+  height: 24px;
+}
+
+/* Takes the place of the hearts row once that player is out — the rest
+   of their scorecard (score, level) stays exactly as visible as before.
+   Same height as .camera-stage__side-hud-lives so the scorecard itself
+   never resizes when this swaps in. */
+.camera-stage__side-hud-gameover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  margin-top: 0.15rem;
+  text-align: center;
+  color: #ff0000;
+  font-size: 1rem;
+}
+
+.camera-stage__versus-result {
+  display: flex;
+  gap: 2rem;
+  margin: 0.5rem 0;
+}
+
+.camera-stage__versus-result-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  border: 2px solid rgba(248, 250, 252, 0.4);
+  border-radius: 0.5rem;
+}
+
+/* Same orange as the single-player score/level containers and the
+   Player 1 side HUD. */
+.camera-stage__versus-result-side--p1 {
+  border-color: #fb923c;
+  color: #fb923c;
+}
+
+/* Same green as the leaderboard and the Player 2 side HUD. */
+.camera-stage__versus-result-side--p2 {
+  border-color: #4ade80;
+  color: #4ade80;
+}
+
+/* Dims the losing side's own player color rather than switching to a
+   neutral gray — applied alongside --p1/--p2, not instead of it. */
+.camera-stage__versus-result-side--loser {
+  opacity: 0.45;
+}
+
+/* Overrides the single-player game-over screen's fixed 11rem width —
+   this card is narrower, and the label/value pair should hug the card's
+   own left edge rather than float centered as an oversized block. */
+.camera-stage__versus-result-side .camera-stage__breakdown {
+  align-self: flex-start;
+  width: 8rem;
+}
+
+/* Narrow window/mobile: the score box (top-left) and level box (top-right)
+   would otherwise collide once the viewport gets much narrower than a
+   desktop window. */
+@media (max-width: 600px) {
+  .camera-stage__score {
+    top: 0.5rem;
+    left: 0.5rem;
+  }
+
+  .camera-stage__level-box {
+    top: 0.5rem;
+    right: 0.5rem;
+  }
+
+  .camera-stage__score,
+  .camera-stage__level-box {
+    width: 9rem;
+    border-width: 2px;
+  }
+
+  .camera-stage__score {
+    padding: 1rem 0.85rem;
+  }
+
+  .camera-stage__level-box {
+    padding: 0.6rem 0.85rem;
+  }
+
+  .camera-stage__score-row,
+  .camera-stage__breakdown-row {
+    font-size: 0.45rem;
+  }
+
+  .camera-stage__score-value {
+    font-size: 1rem;
+  }
+
+  .camera-stage__level-value {
+    font-size: 1rem;
+  }
+
+  .camera-stage__lives {
+    gap: 0.25rem;
+  }
+
+  .camera-stage__heart-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .camera-stage__pause-button {
+    width: 3rem;
+    height: 3rem;
+    font-size: 1.1rem;
+    bottom: 0.75rem;
+    right: 0.75rem;
+  }
+
+  .camera-stage__side-hud {
+    top: 0.5rem;
+    width: 8rem;
+    padding: 0.6rem 0.7rem;
+    border-width: 2px;
+  }
+
+  .camera-stage__side-hud--p1 {
+    left: 0.5rem;
+  }
+
+  .camera-stage__side-hud--p2 {
+    right: 0.5rem;
+  }
+
+  .camera-stage__side-hud-label {
+    font-size: 0.55rem;
+  }
+
+  .camera-stage__heart-icon--small {
+    width: 16px;
+    height: 16px;
+  }
+}
