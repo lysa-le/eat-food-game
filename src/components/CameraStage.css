@@ -47,7 +47,7 @@
 }
 
 .camera-stage__score {
-  left: 1.25rem;
+  left: max(1.25rem, env(safe-area-inset-left));
   padding: 1.75rem 1.5rem;
   /* Rows below need to stretch full-width so their own space-between
      lines up labels on the left and values on the right, matching the
@@ -87,7 +87,7 @@
 }
 
 .camera-stage__level-box {
-  right: 1.25rem;
+  right: max(1.25rem, env(safe-area-inset-right));
   /* Same padding as .camera-stage__score so the two boxes match height. */
   padding: 1.75rem 1.5rem;
   /* Let the row below stretch full-width so its space-between actually
@@ -173,7 +173,11 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* "safe" falls back to top-aligned when the content is taller than
+     the screen (landscape phone), so the scrollable overlay never cuts
+     off the title. */
+  justify-content: safe center;
+  overflow-y: auto;
   gap: 0.75rem;
   background: rgba(0, 0, 0, 0.75);
   color: #f8fafc;
@@ -370,8 +374,8 @@
 
 .camera-stage__pause-button {
   position: absolute;
-  bottom: 1.25rem;
-  right: 1.25rem;
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  right: max(1.25rem, env(safe-area-inset-right));
   /* Above .camera-stage__overlay (z-index 10) — while paused, this
      button must stay visible/clickable on top of the "Paused" overlay
      so the touchpoint doesn't move to resume. */
@@ -465,6 +469,14 @@
   }
 }
 
+/* Landscape phone: the compact corner boxes leave room in the middle,
+   so the banner goes back to the top center. */
+@media (max-height: 500px) and (min-width: 601px) {
+  .camera-stage__hud--top {
+    top: 0.5rem;
+  }
+}
+
 .camera-stage__error {
   color: #f87171;
 }
@@ -511,15 +523,6 @@
   color: #0f172a;
 }
 
-/* Split-screen needs real horizontal room for two independent zones —
-   hide the option below a desktop-ish width rather than offer a mode
-   that won't be playable on a phone. */
-@media (max-width: 820px) {
-  .camera-stage__mode-select .camera-stage__mode-button--versus {
-    display: none;
-  }
-}
-
 /* Per-player HUD for versus mode, replacing the shared score/level/lives
    boxes. Positioned left/right to match where each player's zone lands
    on screen (see side1Runtime/side2Runtime xRange comments in
@@ -549,14 +552,14 @@
 }
 
 .camera-stage__side-hud--p1 {
-  left: 1.25rem;
+  left: max(1.25rem, env(safe-area-inset-left));
   /* Same orange as the single-player score/level containers. */
   border: 3px solid #fb923c;
   color: #fb923c;
 }
 
 .camera-stage__side-hud--p2 {
-  right: 1.25rem;
+  right: max(1.25rem, env(safe-area-inset-right));
   /* Same green as the leaderboard. */
   border: 3px solid #4ade80;
   color: #4ade80;
@@ -643,16 +646,17 @@
 
 /* Narrow window/mobile: the score box (top-left) and level box (top-right)
    would otherwise collide once the viewport gets much narrower than a
-   desktop window. */
-@media (max-width: 600px) {
+   desktop window. Short screens (a phone in landscape) get the same
+   compact HUD so it doesn't eat half the play area. */
+@media (max-width: 600px), (max-height: 500px) {
   .camera-stage__score {
     top: 0.5rem;
-    left: 0.5rem;
+    left: max(0.5rem, env(safe-area-inset-left));
   }
 
   .camera-stage__level-box {
     top: 0.5rem;
-    right: 0.5rem;
+    right: max(0.5rem, env(safe-area-inset-right));
   }
 
   .camera-stage__score,
@@ -695,8 +699,8 @@
     width: 3rem;
     height: 3rem;
     font-size: 1.1rem;
-    bottom: 0.75rem;
-    right: 0.75rem;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    right: max(0.75rem, env(safe-area-inset-right));
   }
 
   .camera-stage__side-hud {
@@ -707,11 +711,11 @@
   }
 
   .camera-stage__side-hud--p1 {
-    left: 0.5rem;
+    left: max(0.5rem, env(safe-area-inset-left));
   }
 
   .camera-stage__side-hud--p2 {
-    right: 0.5rem;
+    right: max(0.5rem, env(safe-area-inset-right));
   }
 
   .camera-stage__side-hud-label {
@@ -721,5 +725,54 @@
   .camera-stage__heart-icon--small {
     width: 16px;
     height: 16px;
+  }
+}
+
+/* Short screens (a phone in landscape): tighten the start/game-over
+   menus so they fit without scrolling where possible. The title scales
+   itself to the subtitle's width (see syncTitleSize), so shrinking the
+   subtitle shrinks the title too. */
+@media (max-height: 500px) {
+  .camera-stage__overlay {
+    gap: 0.4rem;
+    padding: 0.75rem max(0.75rem, env(safe-area-inset-right)) 1.5rem
+      max(0.75rem, env(safe-area-inset-left));
+  }
+
+  .camera-stage__overlay h1 {
+    font-size: 1.2rem;
+  }
+
+  .camera-stage__overlay p {
+    font-size: 0.65rem;
+  }
+
+  .camera-stage__overlay-subtitle {
+    font-size: 0.45rem !important;
+  }
+
+  .camera-stage__leaderboard {
+    margin: 0;
+    padding: 0.4rem 1rem;
+    font-size: 0.55rem;
+  }
+
+  .camera-stage__leaderboard-row {
+    padding: 0.2rem 0;
+  }
+
+  .camera-stage__overlay button {
+    margin-top: 0.25rem;
+    padding: 0.6rem 1.4rem;
+    font-size: 0.7rem;
+  }
+
+  .camera-stage__mode-select .camera-stage__mode-button {
+    padding: 0.45rem 1rem;
+    font-size: 0.5rem;
+  }
+
+  .camera-stage__credit {
+    bottom: 6px;
   }
 }
