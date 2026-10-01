@@ -1,0 +1,38 @@
+rules_version = '2';
+
+// The game's Firebase web config ships in the public site bundle (all
+// Firebase web apps work this way), so these rules are what protect the
+// leaderboard. Shape must match submitGlobalScore in
+// src/game/globalLeaderboard.ts.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isValidScore(data) {
+      return data.keys().hasOnly(['initials', 'score', 'mode', 'createdAt'])
+        && data.keys().hasAll(['initials', 'score', 'mode', 'createdAt'])
+        && data.initials is string
+        && data.initials.size() <= 3
+        && data.score is int
+        && data.score >= 0
+        // The board shows 6 digits (formatScore).
+        && data.score <= 999999
+        && data.mode in ['solo', 'together', 'versus']
+        // serverTimestamp() — clients can't backdate or forge it.
+        && data.createdAt == request.time;
+    }
+
+    match /scores/{scoreId} {
+      // Leaderboard reads: one doc or a small top-N query.
+      allow get: if true;
+      allow list: if request.query.limit <= 50;
+
+      // New scores only; nobody can edit or delete an entry.
+      allow create: if isValidScore(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // Everything else stays closed until a feature needs it.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
