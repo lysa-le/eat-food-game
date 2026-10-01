@@ -214,7 +214,7 @@ function GuestLobby({
     message = 'This game already has 2 players.'
     canLeave = false
   } else if (!cameraReady) {
-    message = 'Starting your camera…'
+    message = 'Getting your camera ready…'
   } else if (joined) {
     message = 'Connected! Waiting for the host to start…'
   } else {
