@@ -407,12 +407,15 @@
 
 .camera-stage__hud {
   position: absolute;
-  bottom: 1.25rem;
+  /* Same bottom offset as .camera-stage__pause-button so the two line up. */
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* Keeps the message centered when it wraps onto two lines. */
+  text-align: center;
   gap: 0.25rem;
   padding: 0.75rem 1.25rem;
   border: 3px solid #fb923c;
@@ -699,7 +702,7 @@
     width: 3rem;
     height: 3rem;
     font-size: 1.1rem;
-    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    /* Bottom stays aligned with .camera-stage__hud (1.25rem). */
     right: max(0.75rem, env(safe-area-inset-right));
   }
 
