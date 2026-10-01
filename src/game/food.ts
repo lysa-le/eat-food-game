@@ -38,10 +38,11 @@ interface CategoryConfig {
   maxActive: number
 }
 
-const FOOD_SPRITE_DIR = '/Food_16x16'
-const JUNK_SPRITE_DIR = '/Junk_16x16'
-const BONUS_SPRITE_DIR = '/Misc/Food'
-const BEETLE_SPRITE_DIR = '/BeetlePack'
+// BASE_URL is '/' locally and '/eat-food-game/' on GitHub Pages.
+const FOOD_SPRITE_DIR = `${import.meta.env.BASE_URL}Food_16x16`
+const JUNK_SPRITE_DIR = `${import.meta.env.BASE_URL}Junk_16x16`
+const BONUS_SPRITE_DIR = `${import.meta.env.BASE_URL}Misc/Food`
+const BEETLE_SPRITE_DIR = `${import.meta.env.BASE_URL}BeetlePack`
 
 const CATEGORY_CONFIG: Record<FoodCategory, CategoryConfig> = {
   good: {
