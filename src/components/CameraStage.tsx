@@ -39,6 +39,8 @@ import {
   isGlobalLeaderboardConfigured,
   submitGlobalScore,
 } from '../game/globalLeaderboard'
+import { isOnlineAvailable, takeRoomIdFromUrl } from '../game/onlineRoom'
+import { OnlineLobby, type LobbyRole } from './OnlineLobby'
 import './CameraStage.css'
 
 // Preload every food/hazard sprite as soon as this module loads, so
@@ -89,6 +91,17 @@ interface GameControls {
 }
 
 const INITIALS_MAX_LENGTH = 3
+
+/** Set when the page was opened from a friend's online-game link. Read
+ * once at module load: takeRoomIdFromUrl strips it from the URL. */
+const initialGuestRoomId = takeRoomIdFromUrl()
+
+/** Which part of the start menu is showing (only while screen is
+ * 'start'): the main menu, the 2 Player choice, or the online lobby. */
+type MenuView = 'main' | 'two-player' | 'online'
+
+/** Seconds counted down before an online game starts on both phones. */
+const ONLINE_COUNTDOWN_SECONDS = 3
 const HEART_ICON_URL = `${import.meta.env.BASE_URL}heart pixel art/heart pixel art 32x32.png`
 
 /**
@@ -402,6 +415,13 @@ export function CameraStage() {
   const [screen, setScreen] = useState<Screen>('start')
   const [gameMode, setGameMode] = useState<GameMode>('together')
   const [showJoinBanner, setShowJoinBanner] = useState(false)
+  const [menuView, setMenuView] = useState<MenuView>(
+    initialGuestRoomId ? 'online' : 'main',
+  )
+  const [lobbyRole, setLobbyRole] = useState<LobbyRole | null>(
+    initialGuestRoomId ? { kind: 'guest', roomId: initialGuestRoomId } : null,
+  )
+  const [countdown, setCountdown] = useState<number | null>(null)
   const [side1, setSide1] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [side2, setSide2] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [versusWinner, setVersusWinner] = useState<
@@ -1105,6 +1125,43 @@ export function CameraStage() {
 
   const cameraReady = status === 'running' || status === 'no-face'
 
+  const backToMainMenu = () => {
+    setLobbyRole(null)
+    setMenuView('main')
+  }
+
+  const startSameScreen = () => {
+    controlsRef.current.selectGameMode('versus')
+    controlsRef.current.startGame()
+  }
+
+  const openOnlineLobby = () => {
+    setLobbyRole({ kind: 'host' })
+    setMenuView('online')
+  }
+
+  // Online: both phones get here when the room flips to 'started'. Each
+  // phone then plays its own 1 Player game after the countdown.
+  const beginOnlineCountdown = () => {
+    controlsRef.current.selectGameMode('together')
+    setLobbyRole(null)
+    setMenuView('main')
+    setCountdown(ONLINE_COUNTDOWN_SECONDS)
+  }
+
+  useEffect(() => {
+    if (countdown === null) return
+    const timer = setTimeout(() => {
+      if (countdown > 1) {
+        setCountdown(countdown - 1)
+      } else {
+        setCountdown(null)
+        controlsRef.current.startGame()
+      }
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [countdown])
+
   return (
     <div className="camera-stage">
       <video ref={videoRef} className="camera-stage__video" playsInline muted />
@@ -1234,7 +1291,56 @@ export function CameraStage() {
         </button>
       )}
 
-      {screen === 'start' && (
+      {screen === 'start' && countdown !== null && (
+        <div className="camera-stage__overlay">
+          <p className="camera-stage__countdown">{countdown}</p>
+        </div>
+      )}
+
+      {screen === 'start' && countdown === null && menuView === 'two-player' && (
+        <div className="camera-stage__overlay">
+          <h1>2 Player</h1>
+          <div className="camera-stage__mode-select">
+            {isOnlineAvailable() && (
+              <button
+                type="button"
+                className="camera-stage__mode-button"
+                onClick={openOnlineLobby}
+              >
+                Online
+              </button>
+            )}
+            <button
+              type="button"
+              className="camera-stage__mode-button"
+              disabled={!cameraReady}
+              onClick={startSameScreen}
+            >
+              {cameraReady ? 'Same Screen' : 'Loading…'}
+            </button>
+          </div>
+          <button
+            type="button"
+            className="camera-stage__action-button camera-stage__secondary-button"
+            onClick={backToMainMenu}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {screen === 'start' && countdown === null && menuView === 'online' && lobbyRole && (
+        <div className="camera-stage__overlay">
+          <OnlineLobby
+            role={lobbyRole}
+            cameraReady={cameraReady}
+            onStart={beginOnlineCountdown}
+            onExit={backToMainMenu}
+          />
+        </div>
+      )}
+
+      {screen === 'start' && countdown === null && menuView === 'main' && (
         <div className="camera-stage__overlay">
           <h1 ref={titleRef} className="camera-stage__title">
             Eat Food
@@ -1253,23 +1359,14 @@ export function CameraStage() {
           <div className="camera-stage__mode-select">
             <button
               type="button"
-              className={
-                gameMode === 'together'
-                  ? 'camera-stage__mode-button camera-stage__mode-button--active'
-                  : 'camera-stage__mode-button'
-              }
-              onClick={() => controlsRef.current.selectGameMode('together')}
+              className="camera-stage__mode-button camera-stage__mode-button--active"
             >
               1 Player
             </button>
             <button
               type="button"
-              className={
-                gameMode === 'versus'
-                  ? 'camera-stage__mode-button camera-stage__mode-button--active camera-stage__mode-button--versus'
-                  : 'camera-stage__mode-button camera-stage__mode-button--versus'
-              }
-              onClick={() => controlsRef.current.selectGameMode('versus')}
+              className="camera-stage__mode-button"
+              onClick={() => setMenuView('two-player')}
             >
               2 Player
             </button>
@@ -1278,7 +1375,10 @@ export function CameraStage() {
           <button
             type="button"
             disabled={!cameraReady}
-            onClick={() => controlsRef.current.startGame()}
+            onClick={() => {
+              controlsRef.current.selectGameMode('together')
+              controlsRef.current.startGame()
+            }}
           >
             {cameraReady ? 'Start' : 'Loading…'}
           </button>

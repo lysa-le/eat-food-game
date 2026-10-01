@@ -30,6 +30,48 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Online 2 Player rooms (src/game/onlineRoom.ts). The room ID is a
+    // long random string in the shared link, so knowing it is what lets
+    // someone join; rooms can't be listed.
+    match /rooms/{roomId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isValidNewRoom(roomId, request.resource.data);
+      allow update: if isValidRoomUpdate(resource.data, request.resource.data);
+      allow delete: if false;
+    }
+
+    function isValidNewRoom(roomId, data) {
+      return roomId.size() >= 16
+        && data.keys().hasOnly(['status', 'createdAt', 'expiresAt'])
+        && data.keys().hasAll(['status', 'createdAt', 'expiresAt'])
+        && data.status == 'waiting'
+        && data.createdAt == request.time
+        && data.expiresAt is timestamp
+        && data.expiresAt > request.time
+        && data.expiresAt <= request.time + duration.value(7, 'h');
+    }
+
+    // waiting <-> ready (friend joins/leaves), ready -> started (host
+    // presses Start, stamped with server time), anything -> closed.
+    function isValidRoomUpdate(before, after) {
+      let changed = after.diff(before).affectedKeys();
+      let from = before.status;
+      let to = after.status;
+      return (
+          from == 'ready' && to == 'started'
+          && changed.hasOnly(['status', 'startedAt'])
+          && after.startedAt == request.time
+        ) || (
+          changed.hasOnly(['status'])
+          && (
+            (from == 'waiting' && to == 'ready')
+            || (from == 'ready' && to == 'waiting')
+            || (from != 'closed' && to == 'closed')
+          )
+        );
+    }
+
     // Everything else stays closed until a feature needs it.
     match /{document=**} {
       allow read, write: if false;

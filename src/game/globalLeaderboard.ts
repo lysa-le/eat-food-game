@@ -39,7 +39,7 @@ export function isGlobalLeaderboardConfigured(): boolean {
 let db: Firestore | null = null
 
 /** Lazily initializes the Firebase app — never called unless configured. */
-function getDb(): Firestore {
+export function getDb(): Firestore {
   if (!db) {
     const app: FirebaseApp = initializeApp(firebaseConfig)
     db = getFirestore(app)

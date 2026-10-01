@@ -391,6 +391,49 @@
   background: #4ade80;
 }
 
+/* Online 2 Player lobby. White behind the QR code so any phone camera
+   can scan it. */
+.camera-stage__lobby-qr {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 11rem;
+  height: 11rem;
+  padding: 0.5rem;
+  background: #fff;
+  border-radius: 0.5rem;
+  color: #1e1b4b;
+  font-size: 0.55rem;
+}
+
+.camera-stage__lobby-qr img {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.camera-stage__lobby-status {
+  font-size: 0.65rem !important;
+  color: #cbd5e1;
+}
+
+.camera-stage__lobby-status--ready {
+  color: #4ade80;
+}
+
+/* 3-2-1 before an online game — same orange + outline as the title. */
+.camera-stage__countdown {
+  font-size: 6rem !important;
+  line-height: 1 !important;
+  color: #fb923c;
+  text-shadow:
+    -2px -2px 0 #1e1b4b,
+    2px -2px 0 #1e1b4b,
+    -2px 2px 0 #1e1b4b,
+    2px 2px 0 #1e1b4b,
+    6px 6px 0 #1e1b4b;
+}
+
 .camera-stage__overlay button:disabled {
   background: #64748b;
   cursor: default;
@@ -807,5 +850,10 @@
 
   .camera-stage__credit {
     bottom: 6px;
+  }
+
+  .camera-stage__lobby-qr {
+    width: 7.5rem;
+    height: 7.5rem;
   }
 }
