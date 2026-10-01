@@ -1115,7 +1115,8 @@ export function CameraStage() {
         className="camera-stage__flash camera-stage__flash--hazard"
       />
 
-      {gameMode !== 'versus' && (
+      {/* Like the versus side HUDs, hidden on the start menu. */}
+      {gameMode !== 'versus' && screen !== 'start' && (
         <>
           <div className="camera-stage__score">
             <div className="camera-stage__score-row camera-stage__top-score camera-stage__hud-divider">
