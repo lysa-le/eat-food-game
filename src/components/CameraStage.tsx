@@ -83,7 +83,7 @@ interface GameControls {
   startGame: () => void
   pauseGame: () => void
   resumeGame: () => void
-  resetGame: () => void
+  returnToMenu: () => void
   submitInitials: (initials: string) => void
   selectGameMode: (mode: GameMode) => void
 }
@@ -385,7 +385,7 @@ export function CameraStage() {
     startGame: () => {},
     pauseGame: () => {},
     resumeGame: () => {},
-    resetGame: () => {},
+    returnToMenu: () => {},
     submitInitials: () => {},
     selectGameMode: () => {},
   })
@@ -540,7 +540,8 @@ export function CameraStage() {
       if (renderLoop) rafId = requestAnimationFrame(renderLoop)
     }
 
-    const resetGame = () => {
+    /** Clears all game state and goes back to the start menu. */
+    const returnToMenu = () => {
       foodManager.reset()
       playerTracker.reset()
       popEffects.length = 0
@@ -554,7 +555,7 @@ export function CameraStage() {
       secondFaceSince = null
       clearTimeout(joinBannerTimer)
       setShowJoinBanner(false)
-      screenLocal = 'playing'
+      screenLocal = 'start'
       setScore(0)
       setGoodPoints(0)
       setJunkPoints(0)
@@ -570,7 +571,7 @@ export function CameraStage() {
       setSide2(snapshotSide(side2Runtime))
       setVersusWinner(null)
 
-      setScreen('playing')
+      setScreen('start')
     }
 
     const selectGameMode = (mode: GameMode) => {
@@ -594,13 +595,16 @@ export function CameraStage() {
         updated[pendingEntryIndex],
         secondPlayerJoined ? 'together' : 'solo',
       ).then(refreshGlobalScores)
+      // Saving ends the round — the start menu's leaderboard already shows
+      // the new entry (from the optimistic update above).
+      returnToMenu()
     }
 
     controlsRef.current = {
       startGame,
       pauseGame,
       resumeGame,
-      resetGame,
+      returnToMenu,
       submitInitials,
       selectGameMode,
     }
@@ -1312,7 +1316,9 @@ export function CameraStage() {
                     editValue={initialsInput}
                     onEditChange={setInitialsInput}
                   />
-                  <button type="submit">Save</button>
+                  <button type="submit" className="camera-stage__action-button">
+                    Save
+                  </button>
                 </form>
               ) : (
                 <HighScoreBoard
@@ -1324,9 +1330,10 @@ export function CameraStage() {
           )}
           <button
             type="button"
-            onClick={() => controlsRef.current.resetGame()}
+            className="camera-stage__action-button camera-stage__secondary-button"
+            onClick={() => controlsRef.current.returnToMenu()}
           >
-            Play Again
+            Return to menu
           </button>
         </div>
       )}
@@ -1373,9 +1380,10 @@ export function CameraStage() {
           </div>
           <button
             type="button"
-            onClick={() => controlsRef.current.resetGame()}
+            className="camera-stage__action-button camera-stage__secondary-button"
+            onClick={() => controlsRef.current.returnToMenu()}
           >
-            Play Again
+            Return to menu
           </button>
         </div>
       )}
