@@ -80,10 +80,9 @@ const CATEGORY_CONFIG: Record<FoodCategory, CategoryConfig> = {
     maxActive: 3,
   },
   bonus: {
-    sprites: [
-      `${BONUS_SPRITE_DIR}/onigiri_1.png`,
-      `${BONUS_SPRITE_DIR}/cake_redvelvet.png`,
-    ],
+    // Onigiri only — a cake bonus read as junk food, which the game
+    // teaches players to avoid.
+    sprites: [`${BONUS_SPRITE_DIR}/onigiri_1.png`],
     points: 5,
     lifetimeMs: 2200,
     lifetimeDecayPerLevel: 0.92,

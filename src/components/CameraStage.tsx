@@ -1259,17 +1259,15 @@ export function CameraStage() {
       {screen === 'game-over' && gameMode !== 'versus' && (
         <div className="camera-stage__overlay camera-stage__overlay--game-over">
           <h1>Game Over</h1>
+          {/* Only a #1 finish gets a headline — any other top-5 finish is
+              already obvious from the blinking initials row below. */}
+          {isGlobalLeaderboardConfigured() && globalRank === 0 && (
+            <p className="camera-stage__high-score">New high score!</p>
+          )}
           <p>Final score: {score}</p>
           <ScoreBreakdown goodPoints={goodPoints} junkPoints={junkPoints} />
           {isGlobalLeaderboardConfigured() && (
             <>
-              {globalRank !== null && (
-                <p className="camera-stage__high-score">
-                  {globalRank === 0
-                    ? 'New high score!'
-                    : 'You made the top 5!'}
-                </p>
-              )}
               {globalRank !== null && !globalScoreSubmitted ? (
                 <form
                   className="camera-stage__initials-form"
