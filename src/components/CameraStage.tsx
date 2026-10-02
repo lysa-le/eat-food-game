@@ -47,7 +47,7 @@ import {
   watchPlayerState,
   type PlayerState,
 } from '../game/onlineRoom'
-import { friendStakesText } from '../game/onlineStakes'
+import { friendStakesText, onlineMatchResult } from '../game/onlineStakes'
 import {
   OnlineLobby,
   type LobbyRole,
@@ -119,6 +119,12 @@ type MenuView = 'main' | 'two-player' | 'online'
  * life lost or game over is sent immediately). Keeps each player's doc
  * near Firestore's ~1 write/second guideline. */
 const ONLINE_SEND_INTERVAL_MS = 500
+/** Online: each phone also re-sends its state this often ("still here"),
+ * so a friend who isn't scoring doesn't look like they've left. */
+const ONLINE_HEARTBEAT_MS = 5000
+/** Online, out first: no word from the friend for this long means they've
+ * left (closed the app, lost signal). */
+const FRIEND_LEFT_AFTER_MS = 30000
 
 /** Seconds counted down before an online game starts on both phones. */
 const ONLINE_COUNTDOWN_SECONDS = 3
@@ -519,6 +525,10 @@ export function CameraStage() {
   const [friendState, setFriendState] = useState<PlayerState | null>(null)
   // Online: you're out of lives but your friend is still playing.
   const [selfOut, setSelfOut] = useState(false)
+  // Online: when the friend's state last arrived (Date.now() ms), and
+  // whether they've gone quiet long enough to count as gone.
+  const [friendSeenAt, setFriendSeenAt] = useState(0)
+  const [friendLeft, setFriendLeft] = useState(false)
   const [side1, setSide1] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [side2, setSide2] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [versusWinner, setVersusWinner] = useState<
@@ -635,6 +645,7 @@ export function CameraStage() {
     let selfOutOnline = false
     let lastPublishAt = 0
     let publishTimer: ReturnType<typeof setTimeout> | undefined
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined
     const publishOnline = (urgent: boolean) => {
       if (!onlineLocal) return
       const send = () => {
@@ -659,6 +670,7 @@ export function CameraStage() {
       }
     }
     const finishOnlineRound = () => {
+      clearInterval(heartbeatTimer)
       if (screenLocal !== 'playing') return
       screenLocal = 'game-over'
       setScreen('game-over')
@@ -667,6 +679,10 @@ export function CameraStage() {
       onlineLocal = session
       clearTimeout(publishTimer)
       publishTimer = undefined
+      clearInterval(heartbeatTimer)
+      if (session) {
+        heartbeatTimer = setInterval(() => publishOnline(true), ONLINE_HEARTBEAT_MS)
+      }
       setOnlineSessionState(session)
     }
     // Pausing halts the render loop entirely, but performance.now() keeps
@@ -1309,6 +1325,7 @@ export function CameraStage() {
       cancelAnimationFrame(rafId)
       clearTimeout(joinBannerTimer)
       clearTimeout(publishTimer)
+      clearInterval(heartbeatTimer)
       stream?.getTracks().forEach((track) => track.stop())
       if (handleResize) window.removeEventListener('resize', handleResize)
     }
@@ -1340,6 +1357,8 @@ export function CameraStage() {
   // phone then plays its own 1 Player game after the countdown.
   const beginOnlineCountdown = (session: OnlineSession) => {
     setFriendState(null)
+    setFriendSeenAt(Date.now())
+    setFriendLeft(false)
     controlsRef.current.setOnlineSession(session)
     controlsRef.current.selectGameMode('together')
     setLobbyRole(null)
@@ -1357,9 +1376,25 @@ export function CameraStage() {
     return watchPlayerState(
       onlineSession.roomId,
       otherRole(onlineSession.role),
-      setFriendState,
+      (state) => {
+        setFriendState(state)
+        if (state) setFriendSeenAt(Date.now())
+      },
     )
   }, [onlineSession])
+
+  // Out first and waiting: if the friend goes quiet for 30s, they've left.
+  useEffect(() => {
+    if (!selfOut || friendState?.out) {
+      setFriendLeft(false)
+      return
+    }
+    const check = () =>
+      setFriendLeft(Date.now() - friendSeenAt >= FRIEND_LEFT_AFTER_MS)
+    check()
+    const timer = setInterval(check, 1000)
+    return () => clearInterval(timer)
+  }, [selfOut, friendState?.out, friendSeenAt])
 
   useEffect(() => {
     if (countdownEndsAt === null) return
@@ -1392,12 +1427,25 @@ export function CameraStage() {
       {selfOut && screen === 'playing' && (
         <>
           <div className="camera-stage__dim" />
-          <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels">
-            <p>Friend is still playing</p>
-            <p className="camera-stage__hud-stakes">
-              {friendStakesText(score, friendState?.score ?? 0)}
-            </p>
-          </div>
+          {friendLeft ? (
+            <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels camera-stage__hud--interactive">
+              <p>Friend has left the game</p>
+              <button
+                type="button"
+                className="camera-stage__hud-button"
+                onClick={() => controlsRef.current.returnToMenu()}
+              >
+                Return to menu
+              </button>
+            </div>
+          ) : (
+            <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels">
+              <p>Friend is still playing</p>
+              <p className="camera-stage__hud-stakes">
+                {friendStakesText(score, friendState?.score ?? 0)}
+              </p>
+            </div>
+          )}
         </>
       )}
 
@@ -1601,7 +1649,72 @@ export function CameraStage() {
         </div>
       )}
 
-      {screen === 'game-over' && gameMode !== 'versus' && (
+      {/* Online result: who won, both players ranked, then (if you made
+          it) your top-5 initials. */}
+      {screen === 'game-over' && onlineSession && (() => {
+        const result = onlineMatchResult(
+          onlineSession.role,
+          { score, level },
+          { score: friendState?.score ?? 0, level: friendState?.level ?? 1 },
+        )
+        return (
+          <div className="camera-stage__overlay camera-stage__overlay--game-over">
+            <h1>Game Over</h1>
+            <p className="camera-stage__high-score">{result.headline}</p>
+            <ol className="camera-stage__leaderboard camera-stage__match-ranking">
+              {result.rows.map((row) => (
+                <li
+                  key={row.playerNumber}
+                  className={
+                    row.isYou
+                      ? 'camera-stage__leaderboard-row camera-stage__leaderboard-row--you'
+                      : 'camera-stage__leaderboard-row'
+                  }
+                >
+                  <span className="camera-stage__leaderboard-rank">{row.rank}.</span>
+                  <span className="camera-stage__leaderboard-initials">
+                    Player {row.playerNumber}
+                  </span>
+                  <span className="camera-stage__match-level">Lv {row.level}</span>
+                  <span className="camera-stage__leaderboard-score">
+                    {formatScore(row.score)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            {isGlobalLeaderboardConfigured() &&
+              globalRank !== null &&
+              !globalScoreSubmitted && (
+                <form
+                  className="camera-stage__initials-form"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    controlsRef.current.submitInitials(initialsInput)
+                  }}
+                >
+                  <HighScoreBoard
+                    entries={globalScores}
+                    highlightIndex={globalRank}
+                    editValue={initialsInput}
+                    onEditChange={setInitialsInput}
+                  />
+                  <button type="submit" className="camera-stage__action-button">
+                    Save
+                  </button>
+                </form>
+              )}
+            <button
+              type="button"
+              className="camera-stage__action-button camera-stage__secondary-button"
+              onClick={() => controlsRef.current.returnToMenu()}
+            >
+              Return to menu
+            </button>
+          </div>
+        )
+      })()}
+
+      {screen === 'game-over' && gameMode !== 'versus' && !onlineSession && (
         <div className="camera-stage__overlay camera-stage__overlay--game-over">
           <h1>Game Over</h1>
           {/* Only a #1 finish gets a headline — any other top-5 finish is

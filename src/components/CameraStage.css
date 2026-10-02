@@ -578,6 +578,55 @@
   color: #4ade80;
 }
 
+/* "Friend has left the game" banner: the only HUD banner with a button. */
+.camera-stage__hud--interactive {
+  pointer-events: auto;
+}
+
+.camera-stage__hud-button {
+  margin-top: 0.5rem;
+  padding: 0.6rem 1.4rem;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 0.6rem;
+  color: #4ade80;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 2px #4ade80;
+  cursor: pointer;
+}
+
+.camera-stage__hud-button:hover {
+  color: #0f172a;
+  background: #4ade80;
+}
+
+/* Online result ranking: same rows as the leaderboard, plus a level
+   column; your own row is highlighted (without the initials blink). */
+.camera-stage__match-level {
+  min-width: 3.5rem;
+  text-align: right;
+}
+
+.camera-stage__leaderboard-row--you {
+  color: #fde047;
+}
+
+/* "Player 1 / Lv 1 / 000087" is wider than initials, so tighten the
+   columns to keep each row on one line on a phone. */
+.camera-stage__match-ranking .camera-stage__leaderboard-row {
+  gap: 0.6rem;
+  white-space: nowrap;
+}
+
+.camera-stage__match-ranking .camera-stage__leaderboard-score {
+  min-width: auto;
+}
+
+.camera-stage__match-ranking .camera-stage__match-level {
+  min-width: auto;
+}
+
 /* Online, out first: dims the camera view behind the HUD boxes. */
 .camera-stage__dim {
   position: absolute;
