@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Playwright output
+test-results/
+playwright-report/
+
 # Claude Code worktrees
 .claude/
 
