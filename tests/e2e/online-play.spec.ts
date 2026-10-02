@@ -49,6 +49,49 @@ test('out first: dimmed play screen, stakes banner, then result on both phones',
   // real leaderboard.
 })
 
+test('Play Again: both tap, a fresh round 2 starts in the same room', async ({ browser }) => {
+  const { host, guest } = await startOnlineGame(browser)
+  await addPoints(host, 30)
+  await addPoints(guest, 20)
+  await loseAllLives(host)
+  await loseAllLives(guest)
+  for (const page of [host, guest]) {
+    await expect(page.locator('.camera-stage__overlay--game-over h1')).toHaveText('Game Over')
+  }
+
+  await host.getByRole('button', { name: 'Play Again' }).click()
+  await expect(host.getByRole('button', { name: 'Waiting for Player 2…' })).toBeDisabled()
+  await expect(guest.getByText('Player 1 wants to play again')).toBeVisible()
+
+  await guest.getByRole('button', { name: 'Play Again' }).click()
+  for (const page of [host, guest]) {
+    await expect(page.locator('.camera-stage__countdown')).toBeVisible({ timeout: 30_000 })
+  }
+  for (const page of [host, guest]) {
+    await expect(page.locator('.camera-stage__overlay')).toHaveCount(0, { timeout: 30_000 })
+  }
+  // Fresh round: zero scores, full lives, and last round's Game Over is gone.
+  await expect.poll(() => panelTexts(host)).toEqual(['You Score 0 Lv 1', 'Friend Score 0 Lv 1'])
+  await expect.poll(() => panelTexts(guest)).toEqual(['You Score 0 Lv 1', 'Friend Score 0 Lv 1'])
+
+  // Round 2 plays and finishes normally.
+  await addPoints(guest, 9)
+  await expect.poll(async () => (await panelTexts(host))[1]).toBe('Friend Score 9 Lv 1')
+  await loseAllLives(guest)
+  await loseAllLives(host)
+  await expect(host.locator('.camera-stage__result-headline')).toHaveText('Player 2 Wins!')
+})
+
+test('leaving after a round: the other phone sees "Player N has left the game"', async ({ browser }) => {
+  const { host, guest } = await startOnlineGame(browser)
+  await loseAllLives(host)
+  await loseAllLives(guest)
+  await expect(guest.locator('.camera-stage__overlay--game-over h1')).toHaveText('Game Over')
+  await host.getByRole('button', { name: 'Return to menu' }).click()
+  await expect(guest.getByText('Player 1 has left the game')).toBeVisible()
+  await expect(guest.getByRole('button', { name: 'Play Again' })).toHaveCount(0)
+})
+
 test('idle friend stays "still playing"; a closed one has "left the game"', async ({ browser }) => {
   test.setTimeout(240_000)
   const { host, guest } = await startOnlineGame(browser)

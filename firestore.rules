@@ -49,7 +49,8 @@ service cloud.firestore {
         allow list: if false;
         allow create, update: if role in ['host', 'guest']
           && roomData(roomId).status == 'started'
-          && isValidPlayerState(request.resource.data);
+          && isValidPlayerState(request.resource.data)
+          && request.resource.data.round == roomData(roomId).round;
         // Cleanup clears these before deleting their long-expired room.
         allow delete: if isLongExpired(roomData(roomId));
       }
@@ -60,12 +61,13 @@ service cloud.firestore {
     }
 
     function isValidPlayerState(data) {
-      return data.keys().hasOnly(['score', 'lives', 'level', 'out', 'updatedAt'])
-        && data.keys().hasAll(['score', 'lives', 'level', 'out', 'updatedAt'])
+      return data.keys().hasOnly(['score', 'lives', 'level', 'out', 'round', 'updatedAt'])
+        && data.keys().hasAll(['score', 'lives', 'level', 'out', 'round', 'updatedAt'])
         && data.score is int && data.score >= 0 && data.score <= 999999
         && data.lives is int && data.lives >= 0 && data.lives <= 3
         && data.level is int && data.level >= 1 && data.level <= 1000
         && data.out is bool
+        && data.round is int && data.round >= 1
         && data.updatedAt == request.time;
     }
 
@@ -85,16 +87,33 @@ service cloud.firestore {
     }
 
     // waiting <-> ready (friend joins/leaves), ready -> started (host
-    // presses Start, stamped with server time), anything -> closed. Only
+    // presses Start: round 1, stamped with server time), Play Again taps
+    // and the next round once both tapped, anything -> closed. Only
     // closing is allowed once a room has expired.
     function isValidRoomUpdate(before, after) {
       let changed = after.diff(before).affectedKeys();
       let from = before.status;
       let to = after.status;
       let open = before.expiresAt > request.time;
+      let playing = open && from == 'started' && to == 'started';
       return (
           open && from == 'ready' && to == 'started'
-          && changed.hasOnly(['status', 'startedAt'])
+          && changed.hasOnly(['status', 'startedAt', 'round'])
+          && after.startedAt == request.time
+          && after.round == 1
+        ) || (
+          // A player taps Play Again.
+          playing && (
+            (changed.hasOnly(['hostAgain']) && after.hostAgain == true)
+            || (changed.hasOnly(['guestAgain']) && after.guestAgain == true)
+          )
+        ) || (
+          // Both tapped: the next round (one at a time), taps cleared.
+          playing
+          && changed.hasOnly(['round', 'startedAt', 'hostAgain', 'guestAgain'])
+          && before.hostAgain == true && before.guestAgain == true
+          && after.round == before.round + 1
+          && after.hostAgain == false && after.guestAgain == false
           && after.startedAt == request.time
         ) || (
           changed.hasOnly(['status'])

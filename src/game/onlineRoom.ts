@@ -134,6 +134,9 @@ export interface PlayerState {
   level: number
   /** Out of lives — their game is over. */
   out: boolean
+  /** Which round this is from (Play Again starts round 2, 3…), so a
+   * finished round's "out" can't end the next one. */
+  round: number
 }
 
 /** Each player writes only their own doc, at rooms/{id}/players/{role}
@@ -153,6 +156,7 @@ export function publishPlayerState(
     lives: state.lives,
     level: state.level,
     out: state.out,
+    round: state.round,
     updatedAt: serverTimestamp(),
   })
 }
@@ -175,6 +179,7 @@ export function watchPlayerState(
               lives: Number(data.lives) || 0,
               level: Number(data.level) || 1,
               out: data.out === true,
+              round: Number(data.round) || 1,
             }
           : null,
       )
@@ -193,7 +198,59 @@ export const joinRoom = (roomId: string) => setStatus(roomId, 'ready')
 export const leaveRoom = (roomId: string) => setStatus(roomId, 'waiting')
 export const closeRoom = (roomId: string) => setStatus(roomId, 'closed')
 export const startRoom = (roomId: string) =>
-  updateDoc(roomRef(roomId), { status: 'started', startedAt: serverTimestamp() })
+  updateDoc(roomRef(roomId), {
+    status: 'started',
+    startedAt: serverTimestamp(),
+    round: 1,
+  })
+
+/** Play Again: marks this player as ready for another round. When both
+ * are, the host starts it (startNextRound). */
+export const requestPlayAgain = (roomId: string, role: PlayerRole) =>
+  updateDoc(roomRef(roomId), { [`${role}Again`]: true })
+
+export const startNextRound = (roomId: string, nextRound: number) =>
+  updateDoc(roomRef(roomId), {
+    round: nextRound,
+    hostAgain: false,
+    guestAgain: false,
+    startedAt: serverTimestamp(),
+  })
+
+/** What a phone in a running online game needs to know about its room. */
+export interface RoomState {
+  status: RoomStatus | null
+  round: number
+  hostAgain: boolean
+  guestAgain: boolean
+}
+
+/** Like watchRoom, plus the round and Play Again taps. */
+export function watchRoomState(
+  roomId: string,
+  onChange: (state: RoomState) => void,
+): Unsubscribe {
+  return onSnapshot(
+    roomRef(roomId),
+    (snapshot) => {
+      const data = snapshot.data()
+      const expiresAt = data?.expiresAt
+      onChange({
+        status: effectiveRoomStatus(
+          data?.status,
+          expiresAt instanceof Timestamp ? expiresAt.toMillis() : null,
+          Date.now(),
+        ),
+        round: Number(data?.round) || 1,
+        hostAgain: data?.hostAgain === true,
+        guestAgain: data?.guestAgain === true,
+      })
+    },
+    (err) => {
+      console.error('Room listener failed', err)
+    },
+  )
+}
 
 /** Calls back with the room's status on every change, or null if the
  * room doesn't exist or can't be read. Expired rooms report 'closed'. */
