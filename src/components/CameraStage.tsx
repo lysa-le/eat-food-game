@@ -47,6 +47,7 @@ import {
   watchPlayerState,
   type PlayerState,
 } from '../game/onlineRoom'
+import { friendStakesText } from '../game/onlineStakes'
 import {
   OnlineLobby,
   type LobbyRole,
@@ -1274,6 +1275,9 @@ export function CameraStage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Online and out, but the friend isn't (or hasn't reported yet).
+  const waitingForFriend = Boolean(onlineSession) && !friendState?.out
+
   const cameraReady =
     (status === 'running' || status === 'no-face') && trackingWarm
 
@@ -1539,7 +1543,30 @@ export function CameraStage() {
         </div>
       )}
 
-      {screen === 'game-over' && gameMode !== 'versus' && (
+      {/* Online: you're out but your friend is still playing — the round
+          isn't decided yet, so show their live score and the stakes until
+          they're out too. */}
+      {screen === 'game-over' && waitingForFriend && (
+        <div className="camera-stage__overlay camera-stage__overlay--game-over">
+          <h1>Game Over</h1>
+          <p>Your score: {score}</p>
+          <p className="camera-stage__lobby-status">
+            Friend is still playing — {friendState?.score ?? 0}
+          </p>
+          <p className="camera-stage__lobby-status camera-stage__lobby-status--ready">
+            ({friendStakesText(score, friendState?.score ?? 0)})
+          </p>
+          <button
+            type="button"
+            className="camera-stage__action-button camera-stage__secondary-button"
+            onClick={() => controlsRef.current.returnToMenu()}
+          >
+            Return to menu
+          </button>
+        </div>
+      )}
+
+      {screen === 'game-over' && gameMode !== 'versus' && !waitingForFriend && (
         <div className="camera-stage__overlay camera-stage__overlay--game-over">
           <h1>Game Over</h1>
           {/* Only a #1 finish gets a headline — any other top-5 finish is
