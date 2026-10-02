@@ -101,6 +101,8 @@ interface GameControls {
   submitInitials: (initials: string) => void
   selectGameMode: (mode: GameMode) => void
   setOnlineSession: (session: OnlineSession | null) => void
+  /** Online: both players are out — move on to the end screen. */
+  finishOnlineRound: () => void
 }
 
 const INITIALS_MAX_LENGTH = 3
@@ -483,6 +485,7 @@ export function CameraStage() {
     submitInitials: () => {},
     selectGameMode: () => {},
     setOnlineSession: () => {},
+    finishOnlineRound: () => {},
   })
   const [status, setStatus] = useState<Status>('requesting-camera')
   const [errorMessage, setErrorMessage] = useState('')
@@ -514,6 +517,8 @@ export function CameraStage() {
     useState<OnlineSession | null>(null)
   // The other phone's live game, for the Friend box.
   const [friendState, setFriendState] = useState<PlayerState | null>(null)
+  // Online: you're out of lives but your friend is still playing.
+  const [selfOut, setSelfOut] = useState(false)
   const [side1, setSide1] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [side2, setSide2] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [versusWinner, setVersusWinner] = useState<
@@ -625,6 +630,9 @@ export function CameraStage() {
     // Online 2 Player: this phone's room/side, and throttled sending of
     // its score/lives/level to the friend's Friend box.
     let onlineLocal: OnlineSession | null = null
+    // Online: out of lives, waiting on the dimmed play screen while the
+    // friend finishes (no chomps, no new food).
+    let selfOutOnline = false
     let lastPublishAt = 0
     let publishTimer: ReturnType<typeof setTimeout> | undefined
     const publishOnline = (urgent: boolean) => {
@@ -649,6 +657,11 @@ export function CameraStage() {
       } else if (publishTimer === undefined) {
         publishTimer = setTimeout(send, wait)
       }
+    }
+    const finishOnlineRound = () => {
+      if (screenLocal !== 'playing') return
+      screenLocal = 'game-over'
+      setScreen('game-over')
     }
     const setOnlineSession = (session: OnlineSession | null) => {
       onlineLocal = session
@@ -704,6 +717,8 @@ export function CameraStage() {
       clearTimeout(joinBannerTimer)
       setShowJoinBanner(false)
       setOnlineSession(null)
+      selfOutOnline = false
+      setSelfOut(false)
       screenLocal = 'start'
       setScore(0)
       setGoodPoints(0)
@@ -757,6 +772,7 @@ export function CameraStage() {
       submitInitials,
       selectGameMode,
       setOnlineSession,
+      finishOnlineRound,
     }
 
     async function start() {
@@ -837,8 +853,15 @@ export function CameraStage() {
           publishOnline(true)
 
           if (livesRemaining <= 0) {
-            screenLocal = 'game-over'
-            setScreen('game-over')
+            if (onlineLocal) {
+              // Stay on the (dimmed) play screen until the friend is out
+              // too — see finishOnlineRound.
+              selfOutOnline = true
+              setSelfOut(true)
+            } else {
+              screenLocal = 'game-over'
+              setScreen('game-over')
+            }
 
             // Checked against the global board only — there's no local
             // fallback board anymore. Nothing is actually written to
@@ -888,6 +911,25 @@ export function CameraStage() {
           playLevelUp()
         }
         publishOnline(false)
+      }
+
+      // Dev-only test hook (stripped from production builds): lets a
+      // headless browser, whose fake camera can't chomp, score points or
+      // lose lives in 1 Player / Online games.
+      if (import.meta.env.DEV) {
+        const fakeFood = (category: FoodItem['category'], points: number) =>
+          ({ id: -1, category, points, xFrac: 0.5, yFrac: 0.5, spawnedAt: 0, expiresAt: null, sprite: '' }) as unknown as FoodItem
+        Object.assign(window, {
+          __eatFoodDebug: {
+            addPoints: (points: number) =>
+              handleEatenFood(fakeFood('good', points), performance.now()),
+            loseLife: () =>
+              handleEatenFood(
+                fakeFood('hazard', 0),
+                Math.max(invincibleUntil, performance.now()),
+              ),
+          },
+        })
       }
 
       /**
@@ -1017,7 +1059,7 @@ export function CameraStage() {
 
           if (screenLocal === 'playing') {
             if (gameModeLocal !== 'versus') {
-              foodManager.update(now, currentLevel)
+              if (!selfOutOnline) foodManager.update(now, currentLevel)
             } else {
               if (!side1Runtime.isGameOver) {
                 side1Runtime.foodManager.update(now, side1Runtime.currentLevel)
@@ -1155,7 +1197,8 @@ export function CameraStage() {
             // player can't keep grabbing food out of play (denying it to
             // the other player) after they're done.
             const p1Active =
-              gameModeLocal !== 'versus' || !side1Runtime.isGameOver
+              !selfOutOnline &&
+              (gameModeLocal !== 'versus' || !side1Runtime.isGameOver)
             const p2Active =
               gameModeLocal !== 'versus' || !side2Runtime.isGameOver
 
@@ -1275,9 +1318,6 @@ export function CameraStage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Online and out, but the friend isn't (or hasn't reported yet).
-  const waitingForFriend = Boolean(onlineSession) && !friendState?.out
-
   const cameraReady =
     (status === 'running' || status === 'no-face') && trackingWarm
 
@@ -1307,6 +1347,10 @@ export function CameraStage() {
     setCountdownEndsAt(performance.now() + ONLINE_COUNTDOWN_SECONDS * 1000)
     setCountdown(ONLINE_COUNTDOWN_SECONDS)
   }
+
+  useEffect(() => {
+    if (selfOut && friendState?.out) controlsRef.current.finishOnlineRound()
+  }, [selfOut, friendState?.out])
 
   useEffect(() => {
     if (!onlineSession) return
@@ -1342,6 +1386,20 @@ export function CameraStage() {
         ref={hazardFlashRef}
         className="camera-stage__flash camera-stage__flash--hazard"
       />
+
+      {/* Online, out first: dim the play area (the boxes stay bright on
+          top) and say your friend is still going. */}
+      {selfOut && screen === 'playing' && (
+        <>
+          <div className="camera-stage__dim" />
+          <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels">
+            <p>Friend is still playing</p>
+            <p className="camera-stage__hud-stakes">
+              {friendStakesText(score, friendState?.score ?? 0)}
+            </p>
+          </div>
+        </>
+      )}
 
       {/* Like the versus side HUDs, hidden on the start menu. Online
           games use the You / Friend boxes instead. */}
@@ -1415,7 +1473,7 @@ export function CameraStage() {
             score={score}
             level={level}
             lives={lives}
-            out={false}
+            out={selfOut}
           />
           <PlayerPanel
             side="p2"
@@ -1428,7 +1486,7 @@ export function CameraStage() {
         </>
       )}
 
-      {(screen === 'playing' || screen === 'paused') && (
+      {(screen === 'playing' || screen === 'paused') && !selfOut && (
         <button
           type="button"
           className="camera-stage__pause-button"
@@ -1543,30 +1601,7 @@ export function CameraStage() {
         </div>
       )}
 
-      {/* Online: you're out but your friend is still playing — the round
-          isn't decided yet, so show their live score and the stakes until
-          they're out too. */}
-      {screen === 'game-over' && waitingForFriend && (
-        <div className="camera-stage__overlay camera-stage__overlay--game-over">
-          <h1>Game Over</h1>
-          <p>Your score: {score}</p>
-          <p className="camera-stage__lobby-status">
-            Friend is still playing — {friendState?.score ?? 0}
-          </p>
-          <p className="camera-stage__lobby-status camera-stage__lobby-status--ready">
-            ({friendStakesText(score, friendState?.score ?? 0)})
-          </p>
-          <button
-            type="button"
-            className="camera-stage__action-button camera-stage__secondary-button"
-            onClick={() => controlsRef.current.returnToMenu()}
-          >
-            Return to menu
-          </button>
-        </div>
-      )}
-
-      {screen === 'game-over' && gameMode !== 'versus' && !waitingForFriend && (
+      {screen === 'game-over' && gameMode !== 'versus' && (
         <div className="camera-stage__overlay camera-stage__overlay--game-over">
           <h1>Game Over</h1>
           {/* Only a #1 finish gets a headline — any other top-5 finish is
@@ -1664,7 +1699,8 @@ export function CameraStage() {
         </div>
       )}
 
-      {status !== 'running' && (
+      {/* Once out online, your framing no longer matters. */}
+      {status !== 'running' && !selfOut && (
         <div className="camera-stage__hud">
           {status === 'requesting-camera' && <p>Requesting camera access…</p>}
           {status === 'loading-model' && <p>Loading face tracking model…</p>}

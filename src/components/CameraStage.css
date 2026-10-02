@@ -553,6 +553,39 @@
   }
 }
 
+/* Online "Friend is still playing" banner: the You / Friend boxes are
+   taller than the 1 Player boxes, so on narrower screens it sits below
+   them instead. Declared after the --top rules so these win. */
+@media (max-width: 900px) {
+  .camera-stage__hud--below-panels {
+    top: 11.75rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .camera-stage__hud--below-panels {
+    top: 9.5rem;
+  }
+}
+
+@media (max-height: 500px) and (min-width: 601px) {
+  .camera-stage__hud--below-panels {
+    top: 0.5rem;
+  }
+}
+
+.camera-stage__hud-stakes {
+  color: #4ade80;
+}
+
+/* Online, out first: dims the camera view behind the HUD boxes. */
+.camera-stage__dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
 .camera-stage__error {
   color: #f87171;
 }
