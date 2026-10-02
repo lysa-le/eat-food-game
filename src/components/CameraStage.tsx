@@ -1428,7 +1428,7 @@ export function CameraStage() {
         <>
           <div className="camera-stage__dim" />
           {friendLeft ? (
-            <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels camera-stage__hud--interactive">
+            <div className="camera-stage__hud camera-stage__hud--center camera-stage__hud--interactive">
               <p>Friend has left the game</p>
               <button
                 type="button"
@@ -1654,13 +1654,13 @@ export function CameraStage() {
       {screen === 'game-over' && onlineSession && (() => {
         const result = onlineMatchResult(
           onlineSession.role,
-          { score, level },
-          { score: friendState?.score ?? 0, level: friendState?.level ?? 1 },
+          { score },
+          { score: friendState?.score ?? 0 },
         )
         return (
           <div className="camera-stage__overlay camera-stage__overlay--game-over">
             <h1>Game Over</h1>
-            <p className="camera-stage__high-score">{result.headline}</p>
+            <p className="camera-stage__result-headline">{result.headline}</p>
             <ol className="camera-stage__leaderboard camera-stage__match-ranking">
               {result.rows.map((row) => (
                 <li
@@ -1675,7 +1675,6 @@ export function CameraStage() {
                   <span className="camera-stage__leaderboard-initials">
                     Player {row.playerNumber}
                   </span>
-                  <span className="camera-stage__match-level">Lv {row.level}</span>
                   <span className="camera-stage__leaderboard-score">
                     {formatScore(row.score)}
                   </span>
@@ -1720,7 +1719,7 @@ export function CameraStage() {
           {/* Only a #1 finish gets a headline — any other top-5 finish is
               already obvious from the blinking initials row below. */}
           {isGlobalLeaderboardConfigured() && globalRank === 0 && (
-            <p className="camera-stage__high-score">New high score!</p>
+            <p className="camera-stage__result-headline">New high score!</p>
           )}
           <p>Final score: {score}</p>
           <ScoreBreakdown goodPoints={goodPoints} junkPoints={junkPoints} />
@@ -1765,7 +1764,7 @@ export function CameraStage() {
       {screen === 'game-over' && gameMode === 'versus' && (
         <div className="camera-stage__overlay camera-stage__overlay--game-over">
           <h1>Game Over</h1>
-          <p className="camera-stage__versus-winner-status">
+          <p className="camera-stage__result-headline">
             {versusWinner === 'tie'
               ? "It's a Tie!"
               : versusWinner === 'p1'

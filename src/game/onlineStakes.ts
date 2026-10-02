@@ -14,7 +14,6 @@ export const playerNumber = (role: PlayerRole): 1 | 2 =>
 export interface MatchRow {
   rank: 1 | 2
   playerNumber: 1 | 2
-  level: number
   score: number
   isYou: boolean
 }
@@ -25,12 +24,12 @@ export interface MatchRow {
  */
 export function onlineMatchResult(
   yourRole: PlayerRole,
-  you: { score: number; level: number },
-  friend: { score: number; level: number },
+  you: { score: number },
+  friend: { score: number },
 ): { headline: string; rows: MatchRow[] } {
   const friendRole: PlayerRole = yourRole === 'host' ? 'guest' : 'host'
-  const yours = { playerNumber: playerNumber(yourRole), ...you, isYou: true }
-  const theirs = { playerNumber: playerNumber(friendRole), ...friend, isYou: false }
+  const yours = { playerNumber: playerNumber(yourRole), score: you.score, isYou: true }
+  const theirs = { playerNumber: playerNumber(friendRole), score: friend.score, isYou: false }
   const tie = you.score === friend.score
   const [first, second] =
     you.score > friend.score || (tie && yours.playerNumber === 1)
