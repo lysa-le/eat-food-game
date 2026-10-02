@@ -36,6 +36,23 @@ game runs normally and the leaderboard is hidden.
 Firestore security rules live in [`firestore.rules`](firestore.rules).
 Publish changes to them in the Firebase Console (Firestore → Rules).
 
+## Tests
+
+```sh
+npm run test:unit   # game logic, no browser (< 1s)
+npx playwright install chromium   # once
+npm run test:e2e    # browser tests (~4 min)
+npm test            # both
+```
+
+The browser tests start the dev server and use a dev-only hook
+(`window.__eatFoodDebug`, stripped from production builds) to score and
+lose lives, since Chromium's fake camera can't chomp. Online and
+Firestore-rules tests use the real Firebase project from `.env.local`
+(they skip without it) and never press Save, so they don't touch the
+real leaderboard. Run `firestore-rules.spec.ts` after publishing rule
+changes.
+
 ## Deploy
 
 Every push to `main` builds and publishes to GitHub Pages via

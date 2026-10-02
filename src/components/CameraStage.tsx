@@ -40,14 +40,23 @@ import {
   submitGlobalScore,
 } from '../game/globalLeaderboard'
 import {
+  closeRoom,
   isOnlineAvailable,
   otherRole,
   publishPlayerState,
+  requestPlayAgain,
+  startNextRound,
   takeRoomIdFromUrl,
   watchPlayerState,
+  watchRoomState,
   type PlayerState,
+  type RoomState,
 } from '../game/onlineRoom'
-import { friendStakesText, onlineMatchResult } from '../game/onlineStakes'
+import {
+  friendStakesText,
+  onlineMatchResult,
+  playerNumber,
+} from '../game/onlineStakes'
 import {
   OnlineLobby,
   type LobbyRole,
@@ -103,6 +112,8 @@ interface GameControls {
   setOnlineSession: (session: OnlineSession | null) => void
   /** Online: both players are out — move on to the end screen. */
   finishOnlineRound: () => void
+  /** Online Play Again: fresh game state for the next round, same room. */
+  prepareOnlineRound: (round: number) => void
 }
 
 const INITIALS_MAX_LENGTH = 3
@@ -492,6 +503,7 @@ export function CameraStage() {
     selectGameMode: () => {},
     setOnlineSession: () => {},
     finishOnlineRound: () => {},
+    prepareOnlineRound: () => {},
   })
   const [status, setStatus] = useState<Status>('requesting-camera')
   const [errorMessage, setErrorMessage] = useState('')
@@ -529,6 +541,11 @@ export function CameraStage() {
   // whether they've gone quiet long enough to count as gone.
   const [friendSeenAt, setFriendSeenAt] = useState(0)
   const [friendLeft, setFriendLeft] = useState(false)
+  // Online: the room's round + Play Again taps, and the round this phone
+  // is playing (they differ for a moment when the next round starts).
+  const [roomState, setRoomState] = useState<RoomState | null>(null)
+  const [playingRound, setPlayingRound] = useState(1)
+  const [playAgainError, setPlayAgainError] = useState<string | null>(null)
   const [side1, setSide1] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [side2, setSide2] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [versusWinner, setVersusWinner] = useState<
@@ -640,6 +657,7 @@ export function CameraStage() {
     // Online 2 Player: this phone's room/side, and throttled sending of
     // its score/lives/level to the friend's Friend box.
     let onlineLocal: OnlineSession | null = null
+    let onlineRound = 1
     // Online: out of lives, waiting on the dimmed play screen while the
     // friend finishes (no chomps, no new food).
     let selfOutOnline = false
@@ -657,6 +675,7 @@ export function CameraStage() {
           lives: Math.max(0, livesRemaining),
           level: currentLevel,
           out: livesRemaining <= 0,
+          round: onlineRound,
         }).catch((err) => console.error('Failed to send online state', err))
       }
       const wait = urgent
@@ -681,6 +700,7 @@ export function CameraStage() {
       publishTimer = undefined
       clearInterval(heartbeatTimer)
       if (session) {
+        onlineRound = 1
         heartbeatTimer = setInterval(() => publishOnline(true), ONLINE_HEARTBEAT_MS)
       }
       setOnlineSessionState(session)
@@ -717,8 +737,8 @@ export function CameraStage() {
       if (renderLoop) rafId = requestAnimationFrame(renderLoop)
     }
 
-    /** Clears all game state and goes back to the start menu. */
-    const returnToMenu = () => {
+    /** Clears all game state (score, lives, food, both versus sides). */
+    const resetGameState = () => {
       foodManager.reset()
       playerTracker.reset()
       popEffects.length = 0
@@ -732,7 +752,6 @@ export function CameraStage() {
       secondFaceSince = null
       clearTimeout(joinBannerTimer)
       setShowJoinBanner(false)
-      setOnlineSession(null)
       selfOutOnline = false
       setSelfOut(false)
       screenLocal = 'start'
@@ -750,7 +769,25 @@ export function CameraStage() {
       setSide1(snapshotSide(side1Runtime))
       setSide2(snapshotSide(side2Runtime))
       setVersusWinner(null)
+    }
 
+    /** Clears all game state and goes back to the start menu. Leaving an
+     * online game closes its room, so the friend sees you've left. */
+    const returnToMenu = () => {
+      if (onlineLocal) void closeRoom(onlineLocal.roomId)
+      resetGameState()
+      setOnlineSession(null)
+      screenLocal = 'start'
+      setScreen('start')
+    }
+
+    const prepareOnlineRound = (round: number) => {
+      if (!onlineLocal) return
+      resetGameState()
+      onlineRound = round
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = setInterval(() => publishOnline(true), ONLINE_HEARTBEAT_MS)
+      screenLocal = 'start'
       setScreen('start')
     }
 
@@ -775,9 +812,10 @@ export function CameraStage() {
         updated[pendingEntryIndex],
         onlineLocal ? 'versus' : secondPlayerJoined ? 'together' : 'solo',
       ).then(refreshGlobalScores)
-      // Saving ends the round — the start menu's leaderboard already shows
-      // the new entry (from the optimistic update above).
-      returnToMenu()
+      // Saving ends a 1 Player game — the start menu's leaderboard already
+      // shows the new entry (from the optimistic update above). Online
+      // players stay on the result screen so they can still Play Again.
+      if (!onlineLocal) returnToMenu()
     }
 
     controlsRef.current = {
@@ -789,6 +827,7 @@ export function CameraStage() {
       selectGameMode,
       setOnlineSession,
       finishOnlineRound,
+      prepareOnlineRound,
     }
 
     async function start() {
@@ -1359,6 +1398,9 @@ export function CameraStage() {
     setFriendState(null)
     setFriendSeenAt(Date.now())
     setFriendLeft(false)
+    setRoomState(null)
+    setPlayingRound(1)
+    setPlayAgainError(null)
     controlsRef.current.setOnlineSession(session)
     controlsRef.current.selectGameMode('together')
     setLobbyRole(null)
@@ -1367,9 +1409,13 @@ export function CameraStage() {
     setCountdown(ONLINE_COUNTDOWN_SECONDS)
   }
 
+  // A finished round's "out" must not end the next one.
+  const friend =
+    friendState && friendState.round === playingRound ? friendState : null
+
   useEffect(() => {
-    if (selfOut && friendState?.out) controlsRef.current.finishOnlineRound()
-  }, [selfOut, friendState?.out])
+    if (selfOut && friend?.out) controlsRef.current.finishOnlineRound()
+  }, [selfOut, friend?.out])
 
   useEffect(() => {
     if (!onlineSession) return
@@ -1383,10 +1429,60 @@ export function CameraStage() {
     )
   }, [onlineSession])
 
-  // Out first and waiting: if the friend goes quiet for 30s, they've left.
   useEffect(() => {
-    if (!selfOut || friendState?.out) {
+    if (!onlineSession) return
+    return watchRoomState(onlineSession.roomId, setRoomState)
+  }, [onlineSession])
+
+  // Play Again: once both tapped, the host starts the next round...
+  const startingRoundRef = useRef(0)
+  useEffect(() => {
+    if (
+      onlineSession?.role !== 'host' ||
+      !roomState?.hostAgain ||
+      !roomState.guestAgain ||
+      startingRoundRef.current === roomState.round + 1
+    ) {
+      return
+    }
+    startingRoundRef.current = roomState.round + 1
+    startNextRound(onlineSession.roomId, roomState.round + 1).catch((err) => {
+      console.error('Failed to start the next round', err)
+      setPlayAgainError('This game has expired. Start a new one from the menu.')
+    })
+  }, [onlineSession, roomState])
+
+  // ...and both phones count down into it.
+  useEffect(() => {
+    if (!onlineSession || !roomState || roomState.round <= playingRound) return
+    setPlayingRound(roomState.round)
+    setFriendSeenAt(Date.now())
+    setFriendLeft(false)
+    setPlayAgainError(null)
+    setCountdownEndsAt(performance.now() + ONLINE_COUNTDOWN_SECONDS * 1000)
+    setCountdown(ONLINE_COUNTDOWN_SECONDS)
+    controlsRef.current.prepareOnlineRound(roomState.round)
+  }, [onlineSession, roomState, playingRound])
+
+  const playAgain = () => {
+    if (!onlineSession) return
+    setPlayAgainError(null)
+    requestPlayAgain(onlineSession.roomId, onlineSession.role).catch((err) => {
+      console.error('Failed to request Play Again', err)
+      setPlayAgainError('This game has expired. Start a new one from the menu.')
+    })
+  }
+
+  // Out first and waiting: the friend has left if they closed the room
+  // (Return to menu) or went quiet for 30s.
+  const friendClosedRoom = roomState?.status === 'closed'
+  useEffect(() => {
+    if (!selfOut || friend?.out) {
       setFriendLeft(false)
+      return
+    }
+    if (friendClosedRoom) {
+      setFriendLeft(true)
       return
     }
     const check = () =>
@@ -1394,7 +1490,7 @@ export function CameraStage() {
     check()
     const timer = setInterval(check, 1000)
     return () => clearInterval(timer)
-  }, [selfOut, friendState?.out, friendSeenAt])
+  }, [selfOut, friend?.out, friendSeenAt, friendClosedRoom])
 
   useEffect(() => {
     if (countdownEndsAt === null) return
@@ -1442,7 +1538,7 @@ export function CameraStage() {
             <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels">
               <p>Friend is still playing</p>
               <p className="camera-stage__hud-stakes">
-                {friendStakesText(score, friendState?.score ?? 0)}
+                {friendStakesText(score, friend?.score ?? 0)}
               </p>
             </div>
           )}
@@ -1526,10 +1622,10 @@ export function CameraStage() {
           <PlayerPanel
             side="p2"
             label="Friend"
-            score={friendState?.score ?? 0}
-            level={friendState?.level ?? 1}
-            lives={friendState?.lives ?? STARTING_LIVES}
-            out={friendState?.out ?? false}
+            score={friend?.score ?? 0}
+            level={friend?.level ?? 1}
+            lives={friend?.lives ?? STARTING_LIVES}
+            out={friend?.out ?? false}
           />
         </>
       )}
@@ -1655,7 +1751,7 @@ export function CameraStage() {
         const result = onlineMatchResult(
           onlineSession.role,
           { score },
-          { score: friendState?.score ?? 0 },
+          { score: friend?.score ?? 0 },
         )
         return (
           <div className="camera-stage__overlay camera-stage__overlay--game-over">
@@ -1702,6 +1798,45 @@ export function CameraStage() {
                   </button>
                 </form>
               )}
+            {isGlobalLeaderboardConfigured() &&
+              globalRank !== null &&
+              globalScoreSubmitted && (
+                <HighScoreBoard entries={globalScores} highlightIndex={globalRank} />
+              )}
+            {(() => {
+              const friendNumber = playerNumber(otherRole(onlineSession.role))
+              const iWantAgain = Boolean(roomState?.[`${onlineSession.role}Again`])
+              const friendWantsAgain = Boolean(
+                roomState?.[`${otherRole(onlineSession.role)}Again`],
+              )
+              if (friendClosedRoom) {
+                return (
+                  <p className="camera-stage__lobby-status">
+                    Player {friendNumber} has left the game
+                  </p>
+                )
+              }
+              return (
+                <>
+                  {playAgainError && (
+                    <p className="camera-stage__lobby-status">{playAgainError}</p>
+                  )}
+                  {friendWantsAgain && !iWantAgain && (
+                    <p className="camera-stage__lobby-status camera-stage__lobby-status--ready">
+                      Player {friendNumber} wants to play again
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    className="camera-stage__action-button"
+                    disabled={iWantAgain}
+                    onClick={playAgain}
+                  >
+                    {iWantAgain ? `Waiting for Player ${friendNumber}…` : 'Play Again'}
+                  </button>
+                </>
+              )
+            })()}
             <button
               type="button"
               className="camera-stage__action-button camera-stage__secondary-button"
