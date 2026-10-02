@@ -199,6 +199,9 @@
 .camera-stage__overlay--game-over h1 {
   /* Matches the heart icon's exact fill red (sampled from the PNG). */
   color: #ff0000;
+  /* A step down from other overlay titles so the result line below
+     (winner / new high score) reads as the headline. */
+  font-size: 1.4rem;
 }
 
 .camera-stage__title {
@@ -230,18 +233,22 @@
   line-height: 2;
 }
 
-.camera-stage__high-score {
-  font-size: 0.75rem !important;
-  color: #fde047;
-}
-
-/* Matches .camera-stage__overlay h1's size — the winner announcement is
-   as much the headline of this screen as "Game Over" itself. */
-.camera-stage__versus-winner-status {
-  font-size: 1.75rem !important;
+/* The result line under "Game Over" on every end screen: "New high
+   score!" (1 Player), "Player 1 Wins!" (Same Screen), "You won" (Online).
+   One size everywhere for consistency. */
+.camera-stage__result-headline {
+  font-size: 1.25rem !important;
   line-height: 1.4;
   margin: 0;
   color: #fde047;
+}
+
+/* End screens: the online ranking and the top-5 board share one width. */
+.camera-stage__overlay--game-over .camera-stage__leaderboard {
+  box-sizing: border-box;
+  width: 18rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .camera-stage__leaderboard {
@@ -553,6 +560,83 @@
   }
 }
 
+/* Online "Friend is still playing" banner: the You / Friend boxes are
+   taller than the 1 Player boxes, so on narrower screens it sits below
+   them instead. Declared after the --top rules so these win. */
+@media (max-width: 900px) {
+  .camera-stage__hud--below-panels {
+    top: 11.75rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .camera-stage__hud--below-panels {
+    top: 9.5rem;
+  }
+}
+
+@media (max-height: 500px) and (min-width: 601px) {
+  .camera-stage__hud--below-panels {
+    top: 0.5rem;
+  }
+}
+
+.camera-stage__hud-stakes {
+  color: #4ade80;
+}
+
+/* "Friend has left the game" card: the only HUD card with a button, so
+   it sits in the middle of the screen. */
+.camera-stage__hud--interactive {
+  pointer-events: auto;
+}
+
+.camera-stage__hud--center {
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  /* left: 50% caps shrink-to-fit width at half the screen, which wraps
+     the message and button on phones — keep them on one line. */
+  white-space: nowrap;
+}
+
+.camera-stage__hud-button {
+  margin-top: 0.5rem;
+  padding: 0.6rem 1.4rem;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 0.6rem;
+  color: #4ade80;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 2px #4ade80;
+  cursor: pointer;
+}
+
+.camera-stage__hud-button:hover {
+  color: #0f172a;
+  background: #4ade80;
+}
+
+/* Online result ranking: same rows as the leaderboard; your own row is
+   highlighted (without the initials blink). */
+.camera-stage__leaderboard-row--you {
+  color: #fde047;
+}
+
+/* "Player 1" is wider than initials — keep it on one line. */
+.camera-stage__match-ranking .camera-stage__leaderboard-row {
+  white-space: nowrap;
+}
+
+/* Online, out first: dims the camera view behind the HUD boxes. */
+.camera-stage__dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
 .camera-stage__error {
   color: #f87171;
 }
@@ -855,5 +939,13 @@
   .camera-stage__lobby-qr {
     width: 7.5rem;
     height: 7.5rem;
+  }
+
+  .camera-stage__overlay--game-over h1 {
+    font-size: 1rem;
+  }
+
+  .camera-stage__result-headline {
+    font-size: 0.9rem !important;
   }
 }
