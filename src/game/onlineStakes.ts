@@ -36,10 +36,10 @@ export function onlineMatchResult(
       ? [yours, theirs]
       : [theirs, yours]
   const headline = tie
-    ? "It's a tie"
+    ? "It's a Tie!"
     : first.isYou
-      ? 'You won'
-      : `Player ${first.playerNumber} won`
+      ? 'You Win!'
+      : `Player ${first.playerNumber} Wins!`
   return {
     headline,
     rows: [
