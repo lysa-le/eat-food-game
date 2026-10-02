@@ -14,6 +14,9 @@ export default defineConfig({
   // Each phone downloads the ~4 MB face model, and online tests share one
   // Firestore project — one at a time keeps both predictable.
   workers: 1,
+  // Online tests depend on real network + Firestore round trips; one
+  // retry absorbs a blip, and Playwright still reports those as flaky.
+  retries: 1,
   fullyParallel: false,
   timeout: 180_000,
   expect: { timeout: 30_000 },

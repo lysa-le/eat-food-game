@@ -10,7 +10,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Apply updates ourselves, only on the main menu — see src/appUpdate.ts.
+      registerType: 'prompt',
+      injectRegister: false,
       manifest: {
         name: 'Eat Food',
         short_name: 'Eat Food',

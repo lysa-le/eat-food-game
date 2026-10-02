@@ -50,6 +50,31 @@ test('Start counts down on both phones; late arrival sees "already started"', as
   await expect(late.getByText('This game already started.')).toBeVisible({ timeout: 60_000 })
 })
 
+test('host only counts down once the server confirms Start', async ({ browser }) => {
+  // Play-test bug: an old app version's Start was rejected by the rules,
+  // but the host's own optimistic "started" made it count down and play
+  // while the guest waited forever. Hold the host's writes back so Start
+  // stays unconfirmed, then let it through.
+  const host = await phone(browser)
+  const link = await hostOnlineRoom(host)
+  const guest = await phone(browser)
+  await guest.goto(link)
+  await expect(host.getByText('Player 2 joined ✓')).toBeVisible({ timeout: 150_000 })
+
+  const writes = '**/google.firestore.v1.Firestore/Write/**'
+  await host.context().route(writes, (route) => route.abort())
+  await host.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(host.getByRole('button', { name: 'Starting…' })).toBeDisabled()
+  await host.waitForTimeout(8_000)
+  await expect(host.locator('.camera-stage__countdown')).toHaveCount(0)
+  await expect(guest.locator('.camera-stage__countdown')).toHaveCount(0)
+
+  await host.context().unroute(writes)
+  for (const page of [host, guest]) {
+    await expect(page.locator('.camera-stage__countdown')).toBeVisible({ timeout: 90_000 })
+  }
+})
+
 test('host Cancel closes the room for a waiting guest', async ({ browser }) => {
   const host = await phone(browser)
   const link = await hostOnlineRoom(host)

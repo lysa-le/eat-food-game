@@ -39,6 +39,19 @@ function playSample(url: string): void {
   })
 }
 
+/**
+ * Browsers (iOS Safari especially) only let an AudioContext start during
+ * a user gesture. Sounds play from the game loop, not from a tap — and an
+ * online game starts from a countdown, not a tap — so resume the context
+ * on any tap or key press. Cheap: it's a no-op once running.
+ */
+export function installAudioUnlock(): void {
+  const unlock = () => resumeIfSuspended(getAudioContext())
+  for (const event of ['pointerdown', 'touchend', 'keydown']) {
+    document.addEventListener(event, unlock, { capture: true, passive: true })
+  }
+}
+
 // Kick off fetch + decode for both samples as soon as this module loads,
 // so the first playback of either doesn't stall on network/decode latency.
 loadSampleBuffer(getAudioContext(), GOOD_EAT_SOUND_URL)

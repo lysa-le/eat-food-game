@@ -50,6 +50,8 @@ function HostLobby({ cameraReady, onStart, onExit }: OnlineLobbyProps) {
   const [qrUrl, setQrUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [starting, setStarting] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
   const startedRef = useRef(false)
 
   useEffect(() => {
@@ -147,11 +149,25 @@ function HostLobby({ cameraReady, onStart, onExit }: OnlineLobbyProps) {
           <button
             type="button"
             className="camera-stage__action-button"
-            disabled={!guestJoined || !cameraReady || !roomId}
-            onClick={() => roomId && void startRoom(roomId)}
+            disabled={!guestJoined || !cameraReady || !roomId || starting}
+            onClick={() => {
+              if (!roomId) return
+              setStarting(true)
+              setStartError(null)
+              // The countdown starts from the server-confirmed "started"
+              // (watchRoom), never from this tap alone.
+              startRoom(roomId).catch((err) => {
+                console.error('Failed to start the game', err)
+                setStarting(false)
+                setStartError(
+                  "Couldn't start the game. Close and reopen the app to update it, then try again.",
+                )
+              })
+            }}
           >
-            Start
+            {starting ? 'Starting…' : 'Start'}
           </button>
+          {startError && <p className="camera-stage__lobby-status">{startError}</p>}
         </>
       )}
       <button
@@ -204,6 +220,7 @@ function GuestLobby({
 
   const leave = () => {
     if (joined && status === 'ready') void leaveRoom(roomId)
+    if (joined && status === 'started') void closeRoom(roomId)
     onExit()
   }
 

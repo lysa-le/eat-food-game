@@ -225,14 +225,17 @@ export interface RoomState {
   guestAgain: boolean
 }
 
-/** Like watchRoom, plus the round and Play Again taps. */
+/** Like watchRoom (server-confirmed only), plus the round and Play
+ * Again taps. */
 export function watchRoomState(
   roomId: string,
   onChange: (state: RoomState) => void,
 ): Unsubscribe {
   return onSnapshot(
     roomRef(roomId),
+    CONFIRMED_ONLY,
     (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return
       const data = snapshot.data()
       const expiresAt = data?.expiresAt
       onChange({
@@ -252,15 +255,27 @@ export function watchRoomState(
   )
 }
 
-/** Calls back with the room's status on every change, or null if the
- * room doesn't exist or can't be read. Expired rooms report 'closed'. */
+/**
+ * Firestore shows this phone's own writes instantly, before the server
+ * accepts them. A rejected write (e.g. an older app version against newer
+ * rules) would briefly look like "started" and then revert — enough for
+ * the host to count down into a game the guest never sees. Room listeners
+ * therefore ignore snapshots with unconfirmed local writes.
+ */
+const CONFIRMED_ONLY = { includeMetadataChanges: true } as const
+
+/** Calls back with the room's status on every server-confirmed change,
+ * or null if the room doesn't exist or can't be read. Expired rooms
+ * report 'closed'. */
 export function watchRoom(
   roomId: string,
   onChange: (status: RoomStatus | null) => void,
 ): Unsubscribe {
   return onSnapshot(
     roomRef(roomId),
+    CONFIRMED_ONLY,
     (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return
       const data = snapshot.data()
       const expiresAt = data?.expiresAt
       onChange(

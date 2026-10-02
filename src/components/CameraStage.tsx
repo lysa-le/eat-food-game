@@ -62,6 +62,7 @@ import {
   type LobbyRole,
   type OnlineSession,
 } from './OnlineLobby'
+import { applyAppUpdate, isUpdateReady, onUpdateReady } from '../appUpdate'
 import './CameraStage.css'
 
 // Preload every food/hazard sprite as soon as this module loads, so
@@ -1373,6 +1374,22 @@ export function CameraStage() {
     // via globalScoresRef instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // A newer version is waiting (see appUpdate.ts): switch to it, but only
+  // while idle on the main menu — never mid-game or in an online lobby.
+  const [updateReady, setUpdateReady] = useState(isUpdateReady)
+  useEffect(() => onUpdateReady(() => setUpdateReady(true)), [])
+  useEffect(() => {
+    if (
+      updateReady &&
+      screen === 'start' &&
+      menuView === 'main' &&
+      countdown === null &&
+      !onlineSession
+    ) {
+      applyAppUpdate()
+    }
+  }, [updateReady, screen, menuView, countdown, onlineSession])
 
   const cameraReady =
     (status === 'running' || status === 'no-face') && trackingWarm
