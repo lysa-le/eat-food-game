@@ -41,6 +41,32 @@ service cloud.firestore {
       allow create: if isValidNewRoom(roomId, request.resource.data);
       allow update: if isValidRoomUpdate(resource.data, request.resource.data);
       allow delete: if isLongExpired(resource.data);
+
+      // Each player's live score/lives/level during a game, shown in the
+      // other phone's Friend box. Written only while the game is running.
+      match /players/{role} {
+        allow get: if true;
+        allow list: if false;
+        allow create, update: if role in ['host', 'guest']
+          && roomData(roomId).status == 'started'
+          && isValidPlayerState(request.resource.data);
+        // Cleanup clears these before deleting their long-expired room.
+        allow delete: if isLongExpired(roomData(roomId));
+      }
+    }
+
+    function roomData(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+    }
+
+    function isValidPlayerState(data) {
+      return data.keys().hasOnly(['score', 'lives', 'level', 'out', 'updatedAt'])
+        && data.keys().hasAll(['score', 'lives', 'level', 'out', 'updatedAt'])
+        && data.score is int && data.score >= 0 && data.score <= 999999
+        && data.lives is int && data.lives >= 0 && data.lives <= 3
+        && data.level is int && data.level >= 1 && data.level <= 1000
+        && data.out is bool
+        && data.updatedAt == request.time;
     }
 
     function isLongExpired(room) {

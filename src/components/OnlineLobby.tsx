@@ -8,8 +8,15 @@ import {
   roomLink,
   startRoom,
   watchRoom,
+  type PlayerRole,
   type RoomStatus,
 } from '../game/onlineRoom'
+
+/** The room this phone is playing in, and which side it is. */
+export interface OnlineSession {
+  roomId: string
+  role: PlayerRole
+}
 
 export type LobbyRole = { kind: 'host' } | { kind: 'guest'; roomId: string }
 
@@ -19,7 +26,7 @@ interface OnlineLobbyProps {
    * the host can't start a game the guest isn't able to play yet. */
   cameraReady: boolean
   /** Both phones call this when the room flips to 'started'. */
-  onStart: () => void
+  onStart: (session: OnlineSession) => void
   /** Back to the main menu (Cancel / Leave / room gone). */
   onExit: () => void
 }
@@ -68,7 +75,7 @@ function HostLobby({ cameraReady, onStart, onExit }: OnlineLobbyProps) {
           setStatus(next)
           if (next === 'started' && !startedRef.current) {
             startedRef.current = true
-            onStart()
+            onStart({ roomId: id, role: 'host' })
           }
         })
       })
@@ -175,7 +182,7 @@ function GuestLobby({
         setStatus(next)
         if (next === 'started' && joiningRef.current && !startedRef.current) {
           startedRef.current = true
-          onStart()
+          onStart({ roomId, role: 'guest' })
         }
       }),
     // onStart is stable for the lifetime of this lobby.

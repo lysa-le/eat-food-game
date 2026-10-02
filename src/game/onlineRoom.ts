@@ -103,12 +103,86 @@ export async function cleanupExpiredRooms(): Promise<number> {
         limit(CLEANUP_BATCH_SIZE),
       ),
     )
-    await Promise.all(expired.docs.map((d) => deleteDoc(d.ref)))
+    // Firestore doesn't delete subcollections with their parent, so clear
+    // each room's player docs first (the rules check the parent room).
+    await Promise.all(
+      expired.docs.map(async (d) => {
+        await Promise.all(
+          PLAYER_ROLES.map((role) => deleteDoc(playerRef(d.id, role))),
+        )
+        await deleteDoc(d.ref)
+      }),
+    )
     return expired.size
   } catch (err) {
     console.warn('Expired room cleanup skipped', err)
     return -1
   }
+}
+
+/** Who's who in a room: the host created it, the guest joined by link. */
+export type PlayerRole = 'host' | 'guest'
+const PLAYER_ROLES: PlayerRole[] = ['host', 'guest']
+
+export const otherRole = (role: PlayerRole): PlayerRole =>
+  role === 'host' ? 'guest' : 'host'
+
+/** One player's live game, shown in the other phone's Friend box. */
+export interface PlayerState {
+  score: number
+  lives: number
+  level: number
+  /** Out of lives — their game is over. */
+  out: boolean
+}
+
+/** Each player writes only their own doc, at rooms/{id}/players/{role}
+ * (validated by firestore.rules), so the two phones never contend for
+ * the same document. */
+function playerRef(roomId: string, role: PlayerRole) {
+  return doc(getDb(), ROOMS_COLLECTION, roomId, 'players', role)
+}
+
+export function publishPlayerState(
+  roomId: string,
+  role: PlayerRole,
+  state: PlayerState,
+): Promise<void> {
+  return setDoc(playerRef(roomId, role), {
+    score: Math.max(0, Math.floor(state.score)),
+    lives: state.lives,
+    level: state.level,
+    out: state.out,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/** Calls back with the player's latest state, or null before their first
+ * update arrives. */
+export function watchPlayerState(
+  roomId: string,
+  role: PlayerRole,
+  onChange: (state: PlayerState | null) => void,
+): Unsubscribe {
+  return onSnapshot(
+    playerRef(roomId, role),
+    (snapshot) => {
+      const data = snapshot.data()
+      onChange(
+        data
+          ? {
+              score: Number(data.score) || 0,
+              lives: Number(data.lives) || 0,
+              level: Number(data.level) || 1,
+              out: data.out === true,
+            }
+          : null,
+      )
+    },
+    (err) => {
+      console.error('Player listener failed', err)
+    },
+  )
 }
 
 function setStatus(roomId: string, status: RoomStatus): Promise<void> {

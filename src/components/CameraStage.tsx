@@ -39,8 +39,19 @@ import {
   isGlobalLeaderboardConfigured,
   submitGlobalScore,
 } from '../game/globalLeaderboard'
-import { isOnlineAvailable, takeRoomIdFromUrl } from '../game/onlineRoom'
-import { OnlineLobby, type LobbyRole } from './OnlineLobby'
+import {
+  isOnlineAvailable,
+  otherRole,
+  publishPlayerState,
+  takeRoomIdFromUrl,
+  watchPlayerState,
+  type PlayerState,
+} from '../game/onlineRoom'
+import {
+  OnlineLobby,
+  type LobbyRole,
+  type OnlineSession,
+} from './OnlineLobby'
 import './CameraStage.css'
 
 // Preload every food/hazard sprite as soon as this module loads, so
@@ -88,6 +99,7 @@ interface GameControls {
   returnToMenu: () => void
   submitInitials: (initials: string) => void
   selectGameMode: (mode: GameMode) => void
+  setOnlineSession: (session: OnlineSession | null) => void
 }
 
 const INITIALS_MAX_LENGTH = 3
@@ -99,6 +111,11 @@ const initialGuestRoomId = takeRoomIdFromUrl()
 /** Which part of the start menu is showing (only while screen is
  * 'start'): the main menu, the 2 Player choice, or the online lobby. */
 type MenuView = 'main' | 'two-player' | 'online'
+
+/** Online: at most one update to the room per player this often (a
+ * life lost or game over is sent immediately). Keeps each player's doc
+ * near Firestore's ~1 write/second guideline. */
+const ONLINE_SEND_INTERVAL_MS = 500
 
 /** Seconds counted down before an online game starts on both phones. */
 const ONLINE_COUNTDOWN_SECONDS = 3
@@ -246,6 +263,59 @@ function HighScoreBoard({
         )
       })}
     </ol>
+  )
+}
+
+/**
+ * One player's box in a two-player game: Same Screen (Player 1 / Player
+ * 2) or Online (You / Friend). p1 is orange on the left, p2 green on the
+ * right. When that player is out, "Game Over" replaces their hearts.
+ */
+function PlayerPanel({
+  side,
+  label,
+  score,
+  level,
+  lives,
+  out,
+}: {
+  side: 'p1' | 'p2'
+  label: string
+  score: number
+  level: number
+  lives: number
+  out: boolean
+}) {
+  return (
+    <div className={`camera-stage__side-hud camera-stage__side-hud--${side}`}>
+      <div className="camera-stage__side-hud-label">{label}</div>
+      <div className="camera-stage__score-row">
+        <span>Score</span>
+        <span className="camera-stage__score-value">{score}</span>
+      </div>
+      <div className="camera-stage__score-row camera-stage__hud-divider">
+        <span>Lv</span>
+        <span className="camera-stage__level-value">{level}</span>
+      </div>
+      {out ? (
+        <div className="camera-stage__side-hud-gameover">Game Over</div>
+      ) : (
+        <div className="camera-stage__side-hud-lives">
+          {Array.from({ length: STARTING_LIVES }, (_, i) => (
+            <img
+              key={i}
+              src={HEART_ICON_URL}
+              alt={i < lives ? 'Life' : 'Lost life'}
+              className={
+                i < lives
+                  ? 'camera-stage__heart-icon camera-stage__heart-icon--small'
+                  : 'camera-stage__heart-icon camera-stage__heart-icon--small camera-stage__heart-icon--empty'
+              }
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -411,6 +481,7 @@ export function CameraStage() {
     returnToMenu: () => {},
     submitInitials: () => {},
     selectGameMode: () => {},
+    setOnlineSession: () => {},
   })
   const [status, setStatus] = useState<Status>('requesting-camera')
   const [errorMessage, setErrorMessage] = useState('')
@@ -437,6 +508,11 @@ export function CameraStage() {
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
   const [trackingWarm, setTrackingWarm] = useState(false)
+  // Set while playing online: which room, and which side this phone is.
+  const [onlineSession, setOnlineSessionState] =
+    useState<OnlineSession | null>(null)
+  // The other phone's live game, for the Friend box.
+  const [friendState, setFriendState] = useState<PlayerState | null>(null)
   const [side1, setSide1] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [side2, setSide2] = useState<SideDisplayState>(INITIAL_SIDE_DISPLAY)
   const [versusWinner, setVersusWinner] = useState<
@@ -545,6 +621,40 @@ export function CameraStage() {
       }
     }
     let joinBannerTimer: ReturnType<typeof setTimeout> | undefined
+    // Online 2 Player: this phone's room/side, and throttled sending of
+    // its score/lives/level to the friend's Friend box.
+    let onlineLocal: OnlineSession | null = null
+    let lastPublishAt = 0
+    let publishTimer: ReturnType<typeof setTimeout> | undefined
+    const publishOnline = (urgent: boolean) => {
+      if (!onlineLocal) return
+      const send = () => {
+        publishTimer = undefined
+        if (!onlineLocal) return
+        lastPublishAt = performance.now()
+        publishPlayerState(onlineLocal.roomId, onlineLocal.role, {
+          score: scoreTotal,
+          lives: Math.max(0, livesRemaining),
+          level: currentLevel,
+          out: livesRemaining <= 0,
+        }).catch((err) => console.error('Failed to send online state', err))
+      }
+      const wait = urgent
+        ? 0
+        : Math.max(0, ONLINE_SEND_INTERVAL_MS - (performance.now() - lastPublishAt))
+      if (wait === 0) {
+        clearTimeout(publishTimer)
+        send()
+      } else if (publishTimer === undefined) {
+        publishTimer = setTimeout(send, wait)
+      }
+    }
+    const setOnlineSession = (session: OnlineSession | null) => {
+      onlineLocal = session
+      clearTimeout(publishTimer)
+      publishTimer = undefined
+      setOnlineSessionState(session)
+    }
     // Pausing halts the render loop entirely, but performance.now() keeps
     // advancing with real wall-clock time regardless. Without this offset,
     // every spawn/expiry/invincibility timestamp (all scheduled against
@@ -557,6 +667,8 @@ export function CameraStage() {
       if (screenLocal !== 'start') return
       screenLocal = 'playing'
       setScreen('playing')
+      // Fill the friend's Friend box straight away (score 0, full lives).
+      publishOnline(true)
     }
 
     const pauseGame = () => {
@@ -590,6 +702,7 @@ export function CameraStage() {
       secondFaceSince = null
       clearTimeout(joinBannerTimer)
       setShowJoinBanner(false)
+      setOnlineSession(null)
       screenLocal = 'start'
       setScore(0)
       setGoodPoints(0)
@@ -628,7 +741,7 @@ export function CameraStage() {
       setGlobalScoreSubmitted(true)
       submitGlobalScore(
         updated[pendingEntryIndex],
-        secondPlayerJoined ? 'together' : 'solo',
+        onlineLocal ? 'versus' : secondPlayerJoined ? 'together' : 'solo',
       ).then(refreshGlobalScores)
       // Saving ends the round — the start menu's leaderboard already shows
       // the new entry (from the optimistic update above).
@@ -642,6 +755,7 @@ export function CameraStage() {
       returnToMenu,
       submitInitials,
       selectGameMode,
+      setOnlineSession,
     }
 
     async function start() {
@@ -719,6 +833,7 @@ export function CameraStage() {
           setLives(livesRemaining)
           playHazardHit()
           triggerFlash(hazardFlashRef.current)
+          publishOnline(true)
 
           if (livesRemaining <= 0) {
             screenLocal = 'game-over'
@@ -771,6 +886,7 @@ export function CameraStage() {
           setLevel(currentLevel)
           playLevelUp()
         }
+        publishOnline(false)
       }
 
       /**
@@ -957,8 +1073,12 @@ export function CameraStage() {
           const [p1Index, p2Index] = playerTracker.assign(
             faces.map((f) => ({ x: f.mouthX, y: f.mouthY })),
           )
-          const player1 = p1Index !== null ? faces[p1Index] : null
-          const player2 = p2Index !== null ? faces[p2Index] : null
+          // Online is one player per phone: track only them (whichever
+          // slot the tracker parked them in) and ignore anyone else.
+          const player1Index = onlineLocal ? (p1Index ?? p2Index) : p1Index
+          const player1 = player1Index !== null ? faces[player1Index] : null
+          const player2 =
+            p2Index !== null && !onlineLocal ? faces[p2Index] : null
 
           // 1 Player mode: announce Player 2 once a second face has
           // stayed in frame long enough to be a real person.
@@ -1144,6 +1264,7 @@ export function CameraStage() {
       cancelled = true
       cancelAnimationFrame(rafId)
       clearTimeout(joinBannerTimer)
+      clearTimeout(publishTimer)
       stream?.getTracks().forEach((track) => track.stop())
       if (handleResize) window.removeEventListener('resize', handleResize)
     }
@@ -1173,13 +1294,24 @@ export function CameraStage() {
 
   // Online: both phones get here when the room flips to 'started'. Each
   // phone then plays its own 1 Player game after the countdown.
-  const beginOnlineCountdown = () => {
+  const beginOnlineCountdown = (session: OnlineSession) => {
+    setFriendState(null)
+    controlsRef.current.setOnlineSession(session)
     controlsRef.current.selectGameMode('together')
     setLobbyRole(null)
     setMenuView('main')
     setCountdownEndsAt(performance.now() + ONLINE_COUNTDOWN_SECONDS * 1000)
     setCountdown(ONLINE_COUNTDOWN_SECONDS)
   }
+
+  useEffect(() => {
+    if (!onlineSession) return
+    return watchPlayerState(
+      onlineSession.roomId,
+      otherRole(onlineSession.role),
+      setFriendState,
+    )
+  }, [onlineSession])
 
   useEffect(() => {
     if (countdownEndsAt === null) return
@@ -1207,8 +1339,9 @@ export function CameraStage() {
         className="camera-stage__flash camera-stage__flash--hazard"
       />
 
-      {/* Like the versus side HUDs, hidden on the start menu. */}
-      {gameMode !== 'versus' && screen !== 'start' && (
+      {/* Like the versus side HUDs, hidden on the start menu. Online
+          games use the You / Friend boxes instead. */}
+      {gameMode !== 'versus' && !onlineSession && screen !== 'start' && (
         <>
           <div className="camera-stage__score">
             <div className="camera-stage__score-row camera-stage__top-score camera-stage__hud-divider">
@@ -1249,65 +1382,45 @@ export function CameraStage() {
 
       {gameMode === 'versus' && screen !== 'start' && (
         <>
-          <div className="camera-stage__side-hud camera-stage__side-hud--p1">
-            <div className="camera-stage__side-hud-label">Player 1</div>
-            <div className="camera-stage__score-row">
-              <span>Score</span>
-              <span className="camera-stage__score-value">{side1.score}</span>
-            </div>
-            <div className="camera-stage__score-row camera-stage__hud-divider">
-              <span>Lv</span>
-              <span className="camera-stage__level-value">{side1.level}</span>
-            </div>
-            {side1.gameOver && screen === 'playing' ? (
-              <div className="camera-stage__side-hud-gameover">Game Over</div>
-            ) : (
-              <div className="camera-stage__side-hud-lives">
-                {Array.from({ length: STARTING_LIVES }, (_, i) => (
-                  <img
-                    key={i}
-                    src={HEART_ICON_URL}
-                    alt={i < side1.lives ? 'Life' : 'Lost life'}
-                    className={
-                      i < side1.lives
-                        ? 'camera-stage__heart-icon camera-stage__heart-icon--small'
-                        : 'camera-stage__heart-icon camera-stage__heart-icon--small camera-stage__heart-icon--empty'
-                    }
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          <PlayerPanel
+            side="p1"
+            label="Player 1"
+            score={side1.score}
+            level={side1.level}
+            lives={side1.lives}
+            out={side1.gameOver && screen === 'playing'}
+          />
+          <PlayerPanel
+            side="p2"
+            label="Player 2"
+            score={side2.score}
+            level={side2.level}
+            lives={side2.lives}
+            out={side2.gameOver && screen === 'playing'}
+          />
+        </>
+      )}
 
-          <div className="camera-stage__side-hud camera-stage__side-hud--p2">
-            <div className="camera-stage__side-hud-label">Player 2</div>
-            <div className="camera-stage__score-row">
-              <span>Score</span>
-              <span className="camera-stage__score-value">{side2.score}</span>
-            </div>
-            <div className="camera-stage__score-row camera-stage__hud-divider">
-              <span>Lv</span>
-              <span className="camera-stage__level-value">{side2.level}</span>
-            </div>
-            {side2.gameOver && screen === 'playing' ? (
-              <div className="camera-stage__side-hud-gameover">Game Over</div>
-            ) : (
-              <div className="camera-stage__side-hud-lives">
-                {Array.from({ length: STARTING_LIVES }, (_, i) => (
-                  <img
-                    key={i}
-                    src={HEART_ICON_URL}
-                    alt={i < side2.lives ? 'Life' : 'Lost life'}
-                    className={
-                      i < side2.lives
-                        ? 'camera-stage__heart-icon camera-stage__heart-icon--small'
-                        : 'camera-stage__heart-icon camera-stage__heart-icon--small camera-stage__heart-icon--empty'
-                    }
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+      {/* Online 2 Player: your game on the left, your friend's (live from
+          their phone) on the right — the same boxes as Same Screen. */}
+      {onlineSession && screen !== 'start' && (
+        <>
+          <PlayerPanel
+            side="p1"
+            label="You"
+            score={score}
+            level={level}
+            lives={lives}
+            out={false}
+          />
+          <PlayerPanel
+            side="p2"
+            label="Friend"
+            score={friendState?.score ?? 0}
+            level={friendState?.level ?? 1}
+            lives={friendState?.lives ?? STARTING_LIVES}
+            out={friendState?.out ?? false}
+          />
         </>
       )}
 
