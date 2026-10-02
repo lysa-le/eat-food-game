@@ -565,13 +565,13 @@
    them instead. Declared after the --top rules so these win. */
 @media (max-width: 900px) {
   .camera-stage__hud--below-panels {
-    top: 11.75rem;
+    top: 12.25rem;
   }
 }
 
 @media (max-width: 600px) {
   .camera-stage__hud--below-panels {
-    top: 9.5rem;
+    top: 10rem;
   }
 }
 
@@ -687,6 +687,33 @@
    boxes. Positioned left/right to match where each player's zone lands
    on screen (see side1Runtime/side2Runtime xRange comments in
    CameraStage.tsx — player 1 is screen-left, player 2 screen-right). */
+/* Online: a "YOU" tab on the top edge of this phone's own box. Both
+   online boxes sit a little lower to leave room for it. */
+.camera-stage__side-hud.camera-stage__side-hud--online {
+  top: 1.5rem;
+}
+
+.camera-stage__side-hud-you {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.5rem;
+  line-height: 1;
+  color: #0f172a;
+  text-shadow: none;
+}
+
+.camera-stage__side-hud--p1 .camera-stage__side-hud-you {
+  background: #fb923c;
+}
+
+.camera-stage__side-hud--p2 .camera-stage__side-hud-you {
+  background: #4ade80;
+}
+
 .camera-stage__side-hud {
   position: absolute;
   top: 1rem;
@@ -868,6 +895,14 @@
     width: 8rem;
     padding: 0.6rem 0.7rem;
     border-width: 2px;
+  }
+
+  .camera-stage__side-hud.camera-stage__side-hud--online {
+    top: 1rem;
+  }
+
+  .camera-stage__side-hud-you {
+    font-size: 0.4rem;
   }
 
   .camera-stage__side-hud--p1 {

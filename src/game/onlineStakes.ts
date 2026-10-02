@@ -1,10 +1,14 @@
 import type { PlayerRole } from './onlineRoom'
 
-/** Online, once you're out: what your still-playing friend needs. */
-export function friendStakesText(yourScore: number, friendScore: number): string {
-  if (friendScore > yourScore) return 'Friend is ahead'
+/** Online, once you're out: what the still-playing player needs. */
+export function friendStakesText(
+  yourScore: number,
+  friendScore: number,
+  friendNumber: 1 | 2,
+): string {
+  if (friendScore > yourScore) return `Player ${friendNumber} is ahead`
   const needed = yourScore - friendScore + 1
-  return `Friend needs ${needed} more to win`
+  return `Player ${friendNumber} needs ${needed} more to win`
 }
 
 /** The host is Player 1 (as in the lobby's "Player 2 joined"). */

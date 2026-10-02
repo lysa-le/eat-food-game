@@ -13,7 +13,7 @@ test('host waits; guest joins; leave and rejoin; room full', async ({ browser })
 
   let guest = await phone(browser)
   await guest.goto(link)
-  await expect(guest.getByText('Connected! Waiting for the host to start…')).toBeVisible({ timeout: 150_000 })
+  await expect(guest.getByText("Connected! You're Player 2. Waiting for Player 1 to start…")).toBeVisible({ timeout: 150_000 })
   await expect(host.getByText('Player 2 joined ✓')).toBeVisible()
   await expect(host.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
 

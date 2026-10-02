@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { friendStakesText, onlineMatchResult } from '../../src/game/onlineStakes.ts'
 
-test('stakes while your friend is still playing', () => {
-  assert.equal(friendStakesText(87, 64), 'Friend needs 24 more to win')
-  assert.equal(friendStakesText(50, 64), 'Friend is ahead')
-  assert.equal(friendStakesText(40, 40), 'Friend needs 1 more to win')
-  assert.equal(friendStakesText(0, 0), 'Friend needs 1 more to win')
+test('stakes while the other player is still playing', () => {
+  assert.equal(friendStakesText(87, 64, 2), 'Player 2 needs 24 more to win')
+  assert.equal(friendStakesText(50, 64, 2), 'Player 2 is ahead')
+  assert.equal(friendStakesText(40, 40, 1), 'Player 1 needs 1 more to win')
+  assert.equal(friendStakesText(0, 0, 1), 'Player 1 needs 1 more to win')
 })
 
 const summary = (r: ReturnType<typeof onlineMatchResult>) =>

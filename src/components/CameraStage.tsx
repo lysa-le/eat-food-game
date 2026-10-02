@@ -299,6 +299,8 @@ function PlayerPanel({
   level,
   lives,
   out,
+  online = false,
+  isYou = false,
 }: {
   side: 'p1' | 'p2'
   label: string
@@ -306,9 +308,16 @@ function PlayerPanel({
   level: number
   lives: number
   out: boolean
+  /** Online boxes sit a little lower to leave room for the YOU tab. */
+  online?: boolean
+  /** Online: a "YOU" tab on the top edge of this phone's own box. */
+  isYou?: boolean
 }) {
   return (
-    <div className={`camera-stage__side-hud camera-stage__side-hud--${side}`}>
+    <div
+      className={`camera-stage__side-hud camera-stage__side-hud--${side}${online ? ' camera-stage__side-hud--online' : ''}`}
+    >
+      {isYou && <div className="camera-stage__side-hud-you">YOU</div>}
       <div className="camera-stage__side-hud-label">{label}</div>
       <div className="camera-stage__score-row">
         <span>Score</span>
@@ -1542,7 +1551,7 @@ export function CameraStage() {
           <div className="camera-stage__dim" />
           {friendLeft ? (
             <div className="camera-stage__hud camera-stage__hud--center camera-stage__hud--interactive">
-              <p>Friend has left the game</p>
+              <p>Player {playerNumber(otherRole(onlineSession!.role))} has left the game</p>
               <button
                 type="button"
                 className="camera-stage__hud-button"
@@ -1553,9 +1562,13 @@ export function CameraStage() {
             </div>
           ) : (
             <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels">
-              <p>Friend is still playing</p>
+              <p>Player {playerNumber(otherRole(onlineSession!.role))} is still playing</p>
               <p className="camera-stage__hud-stakes">
-                {friendStakesText(score, friend?.score ?? 0)}
+                {friendStakesText(
+                  score,
+                  friend?.score ?? 0,
+                  playerNumber(otherRole(onlineSession!.role)),
+                )}
               </p>
             </div>
           )}
@@ -1624,28 +1637,25 @@ export function CameraStage() {
         </>
       )}
 
-      {/* Online 2 Player: your game on the left, your friend's (live from
-          their phone) on the right — the same boxes as Same Screen. */}
-      {onlineSession && screen !== 'start' && (
-        <>
-          <PlayerPanel
-            side="p1"
-            label="You"
-            score={score}
-            level={level}
-            lives={lives}
-            out={selfOut}
-          />
-          <PlayerPanel
-            side="p2"
-            label="Friend"
-            score={friend?.score ?? 0}
-            level={friend?.level ?? 1}
-            lives={friend?.lives ?? STARTING_LIVES}
-            out={friend?.out ?? false}
-          />
-        </>
-      )}
+      {/* Online 2 Player: the same boxes as Same Screen, laid out the same
+          on both phones — Player 1 (host) orange on the left, Player 2 green
+          on the right — with a YOU tab on this phone's own box. */}
+      {onlineSession && screen !== 'start' && (() => {
+        const mine = { score, level, lives, out: selfOut }
+        const theirs = {
+          score: friend?.score ?? 0,
+          level: friend?.level ?? 1,
+          lives: friend?.lives ?? STARTING_LIVES,
+          out: friend?.out ?? false,
+        }
+        const amHost = onlineSession.role === 'host'
+        return (
+          <>
+            <PlayerPanel side="p1" label="Player 1" online isYou={amHost} {...(amHost ? mine : theirs)} />
+            <PlayerPanel side="p2" label="Player 2" online isYou={!amHost} {...(amHost ? theirs : mine)} />
+          </>
+        )
+      })()}
 
       {(screen === 'playing' || screen === 'paused') && !selfOut && (
         <button

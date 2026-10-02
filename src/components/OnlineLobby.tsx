@@ -240,7 +240,7 @@ function GuestLobby({
   } else if (!cameraReady) {
     message = 'Getting your camera ready…'
   } else if (joined) {
-    message = 'Connected! Waiting for the host to start…'
+    message = "Connected! You're Player 2. Waiting for Player 1 to start…"
   } else {
     message = 'Joining…'
   }
