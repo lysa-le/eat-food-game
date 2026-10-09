@@ -560,7 +560,12 @@ export function CameraStage() {
   // Online: when the friend's state last arrived (Date.now() ms), and
   // whether they've gone quiet long enough to count as gone.
   const [friendSeenAt, setFriendSeenAt] = useState(0)
-  const [friendQuit, setFriendQuit] = useState(false)
+  // Online: the friend quit this round — by closing the room (Quit,
+  // Return to menu, closing/reloading the page; sticks for the round) or
+  // by going silent for 30s (clears if their updates come back).
+  const [friendQuitByClose, setFriendQuitByClose] = useState(false)
+  const [friendSilent, setFriendSilent] = useState(false)
+  const friendQuit = friendQuitByClose || friendSilent
   // Online: the room's round + Play Again taps, and the round this phone
   // is playing (they differ for a moment when the next round starts).
   const [roomState, setRoomState] = useState<RoomState | null>(null)
@@ -697,7 +702,12 @@ export function CameraStage() {
           out: livesRemaining <= 0,
           paused: screenLocal === 'paused',
           round: onlineRound,
-        }).catch((err) => console.error('Failed to send online state', err))
+        }).catch((err) => {
+          // Expected once the other player quits: the room is closed, so
+          // the rules (rightly) refuse further updates to it.
+          if ((err as { code?: string })?.code === 'permission-denied') return
+          console.error('Failed to send online state', err)
+        })
       }
       const wait = urgent
         ? 0
@@ -1450,7 +1460,8 @@ export function CameraStage() {
   const beginOnlineCountdown = (session: OnlineSession) => {
     setFriendState(null)
     setFriendSeenAt(Date.now())
-    setFriendQuit(false)
+    setFriendQuitByClose(false)
+    setFriendSilent(false)
     setRoomState(null)
     setPlayingRound(1)
     setPlayAgainError(null)
@@ -1517,7 +1528,8 @@ export function CameraStage() {
     if (!onlineSession || !roomState || roomState.round <= playingRound) return
     setPlayingRound(roomState.round)
     setFriendSeenAt(Date.now())
-    setFriendQuit(false)
+    setFriendQuitByClose(false)
+    setFriendSilent(false)
     setPlayAgainError(null)
     setCountdownEndsAt(performance.now() + ONLINE_COUNTDOWN_SECONDS * 1000)
     setCountdown(ONLINE_COUNTDOWN_SECONDS)
@@ -1533,26 +1545,22 @@ export function CameraStage() {
     })
   }
 
-  // The friend has quit if they closed the room (Quit, Return to menu,
-  // closing or reloading the page) or went quiet for 30s — checked for the
-  // whole online game, not only once you're out. A friend who already
-  // finished (out) hasn't quit.
+  // Quitting is judged only while the round is being played: leaving the
+  // result screen afterwards doesn't change who won. A player who's out
+  // but leaves before the other finishes has still quit.
   const friendClosedRoom = roomState?.status === 'closed'
+  const roundInPlay = screen === 'playing' || screen === 'paused'
   useEffect(() => {
-    if (!onlineSession || screen === 'start' || friend?.out) {
-      setFriendQuit(false)
-      return
-    }
-    if (friendClosedRoom) {
-      setFriendQuit(true)
-      return
-    }
+    if (onlineSession && roundInPlay && friendClosedRoom) setFriendQuitByClose(true)
+  }, [onlineSession, roundInPlay, friendClosedRoom])
+  useEffect(() => {
+    if (!onlineSession || !roundInPlay) return
     const check = () =>
-      setFriendQuit(Date.now() - friendSeenAt >= FRIEND_QUIT_AFTER_MS)
+      setFriendSilent(Date.now() - friendSeenAt >= FRIEND_QUIT_AFTER_MS)
     check()
     const timer = setInterval(check, 1000)
     return () => clearInterval(timer)
-  }, [onlineSession, screen, friend?.out, friendSeenAt, friendClosedRoom])
+  }, [onlineSession, roundInPlay, friendSeenAt])
 
   // Quitting means the other player wins: once you're out, go straight
   // to the result.

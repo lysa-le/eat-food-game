@@ -101,7 +101,7 @@ test('Play Again: both tap, a fresh round 2 starts in the same room', async ({ b
   await expect(host.locator('.camera-stage__result-headline')).toHaveText('Player 2 Wins!')
 })
 
-test('leaving after a round: the other phone sees "Player N has left the game"', async ({ browser }) => {
+test('leaving after a round: the other phone sees "Player N has quit the game"', async ({ browser }) => {
   const { host, guest } = await startOnlineGame(browser)
   await loseAllLives(host)
   await loseAllLives(guest)

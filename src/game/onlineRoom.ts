@@ -220,15 +220,30 @@ export const closeRoom = (roomId: string) => setStatus(roomId, 'closed')
  */
 export function setRoomStatusOnUnload(roomId: string, status: RoomStatus): void {
   const { projectId, apiKey } = firestoreRestConfig()
+  // A Firestore `commit` sent as a CORS "simple" request (POST, text/plain)
+  // — no preflight, so browsers let it go out while the page unloads.
+  // sendBeacon is built for exactly this; keepalive fetch is the fallback.
   const url =
     `https://firestore.googleapis.com/v1/projects/${projectId}` +
-    `/databases/(default)/documents/${ROOMS_COLLECTION}/${roomId}` +
-    `?updateMask.fieldPaths=status&key=${apiKey}`
+    `/databases/(default)/documents:commit?key=${apiKey}`
+  const body = JSON.stringify({
+    writes: [
+      {
+        update: {
+          name: `projects/${projectId}/databases/(default)/documents/${ROOMS_COLLECTION}/${roomId}`,
+          fields: { status: { stringValue: status } },
+        },
+        updateMask: { fieldPaths: ['status'] },
+      },
+    ],
+  })
+  const type = 'text/plain;charset=UTF-8'
+  if (navigator.sendBeacon?.(url, new Blob([body], { type }))) return
   void fetch(url, {
-    method: 'PATCH',
+    method: 'POST',
     keepalive: true,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fields: { status: { stringValue: status } } }),
+    headers: { 'Content-Type': type },
+    body,
   }).catch(() => {})
 }
 export const startRoom = (roomId: string) =>
