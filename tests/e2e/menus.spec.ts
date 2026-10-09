@@ -47,6 +47,22 @@ test('1 Player: Score/Level boxes while playing; end screen after 3 lives', asyn
   await expect(page.locator('.camera-stage__title')).toHaveText('Eat Food')
 })
 
+test('Paused screen: Quit returns to the main menu with the camera running', async ({ browser }) => {
+  const page = await phone(browser)
+  await openApp(page)
+  await page.getByRole('button', { name: 'Start', exact: true }).click()
+  await page.getByRole('button', { name: 'Pause' }).click()
+  await expect(page.locator('.camera-stage__overlay h1')).toHaveText('Paused')
+  await page.getByRole('button', { name: 'Quit' }).click()
+  await expect(page.locator('.camera-stage__title')).toHaveText('Eat Food')
+  // The draw loop restarted: the camera frame keeps changing.
+  const frame = () => page.locator('canvas').evaluate((c: HTMLCanvasElement) => c.toDataURL().length)
+  const a = await frame()
+  await page.waitForTimeout(1500)
+  const b = await frame()
+  expect(a).not.toBe(b)
+})
+
 test('pause button uses the drawn icon, not an emoji', async ({ browser }) => {
   const page = await phone(browser)
   await openApp(page)

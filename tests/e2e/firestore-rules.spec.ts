@@ -44,7 +44,7 @@ test('published rules allow and deny the right writes', async () => {
   const id = 'rulestest' + Math.random().toString(36).slice(2, 14)
   const room = doc(db, 'rooms', id)
   const player = (role: string) => doc(db, 'rooms', id, 'players', role)
-  const state = (lives = 3, round = 1) => ({ score: 5, lives, level: 1, out: false, round, updatedAt: serverTimestamp() })
+  const state = (lives = 3, round = 1) => ({ score: 5, lives, level: 1, out: false, paused: false, round, updatedAt: serverTimestamp() })
   const rooms = collection(db, 'rooms')
 
   // Soft expects: one run reports every rule that's wrong, not just the first.

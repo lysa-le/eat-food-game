@@ -143,6 +143,8 @@ export interface PlayerState {
   level: number
   /** Out of lives — their game is over. */
   out: boolean
+  /** On the pause screen (shown as "Paused" in their box). */
+  paused: boolean
   /** Which round this is from (Play Again starts round 2, 3…), so a
    * finished round's "out" can't end the next one. */
   round: number
@@ -165,6 +167,7 @@ export function publishPlayerState(
     lives: state.lives,
     level: state.level,
     out: state.out,
+    paused: state.paused,
     round: state.round,
     updatedAt: serverTimestamp(),
   })
@@ -188,6 +191,7 @@ export function watchPlayerState(
               lives: Number(data.lives) || 0,
               level: Number(data.level) || 1,
               out: data.out === true,
+              paused: data.paused === true,
               round: Number(data.round) || 1,
             }
           : null,
@@ -206,6 +210,27 @@ function setStatus(roomId: string, status: RoomStatus): Promise<void> {
 export const joinRoom = (roomId: string) => setStatus(roomId, 'ready')
 export const leaveRoom = (roomId: string) => setStatus(roomId, 'waiting')
 export const closeRoom = (roomId: string) => setStatus(roomId, 'closed')
+
+/**
+ * Sets a room's status while the page is closing or reloading (pagehide):
+ * the SDK can't be relied on to finish a write then, but a `keepalive`
+ * fetch to Firestore's REST API outlives the page. Same rules apply (only
+ * `status` changes). Best effort — iOS doesn't always fire pagehide, so
+ * the other phone also treats 30s of silence as leaving.
+ */
+export function setRoomStatusOnUnload(roomId: string, status: RoomStatus): void {
+  const { projectId, apiKey } = firestoreRestConfig()
+  const url =
+    `https://firestore.googleapis.com/v1/projects/${projectId}` +
+    `/databases/(default)/documents/${ROOMS_COLLECTION}/${roomId}` +
+    `?updateMask.fieldPaths=status&key=${apiKey}`
+  void fetch(url, {
+    method: 'PATCH',
+    keepalive: true,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: { status: { stringValue: status } } }),
+  }).catch(() => {})
+}
 export const startRoom = (roomId: string) =>
   updateDoc(roomRef(roomId), {
     status: 'started',

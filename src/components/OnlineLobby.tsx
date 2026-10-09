@@ -6,6 +6,7 @@ import {
   joinRoom,
   leaveRoom,
   roomLink,
+  setRoomStatusOnUnload,
   startRoom,
   watchRoom,
   type PlayerRole,
@@ -93,6 +94,15 @@ function HostLobby({ cameraReady, onStart, onExit }: OnlineLobbyProps) {
     // onStart is stable for the lifetime of this lobby.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Closing the page while waiting closes the room for the guest.
+  useEffect(() => {
+    const onUnload = () => {
+      if (roomId && !startedRef.current) setRoomStatusOnUnload(roomId, 'closed')
+    }
+    window.addEventListener('pagehide', onUnload)
+    return () => window.removeEventListener('pagehide', onUnload)
+  }, [roomId])
 
   const shareLink = async () => {
     if (!roomId) return
@@ -228,6 +238,15 @@ function GuestLobby({
         joiningRef.current = false
       })
   }, [status, cameraReady, roomId])
+
+  // Closing the page after joining frees the spot (host back to waiting).
+  useEffect(() => {
+    const onUnload = () => {
+      if (joined && status === 'ready') setRoomStatusOnUnload(roomId, 'waiting')
+    }
+    window.addEventListener('pagehide', onUnload)
+    return () => window.removeEventListener('pagehide', onUnload)
+  }, [joined, status, roomId])
 
   const leave = () => {
     if (joined && status === 'ready') void leaveRoom(roomId)
