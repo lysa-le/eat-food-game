@@ -1,9 +1,24 @@
+import { execSync } from 'node:child_process'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
+/** Short commit id, shown next to the credit so two devices can be
+ * checked for the same version. */
+function appVersion(): string {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 7)
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim()
+  } catch {
+    return 'dev'
+  }
+}
+
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion()),
+  },
   // GitHub Pages serves the site from /eat-food-game/ (set by the deploy
   // workflow); local dev and preview stay at /.
   base: process.env.BASE_PATH ?? '/',

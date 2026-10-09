@@ -1455,10 +1455,17 @@ export function CameraStage() {
     )
   }, [onlineSession])
 
+  // On the result screen (waiting for Play Again), also poll — a missed
+  // round change would leave one phone behind.
+  const onResultScreen = screen === 'game-over'
   useEffect(() => {
     if (!onlineSession) return
-    return watchRoomState(onlineSession.roomId, setRoomState)
-  }, [onlineSession])
+    return watchRoomState(
+      onlineSession.roomId,
+      setRoomState,
+      onResultScreen ? { pollMs: 1000 } : undefined,
+    )
+  }, [onlineSession, onResultScreen])
 
   // Play Again: once both tapped, the host starts the next round...
   const startingRoundRef = useRef(0)
@@ -1994,7 +2001,9 @@ export function CameraStage() {
       )}
 
       {(screen === 'start' || screen === 'game-over') && (
-        <div className="camera-stage__credit">Created by George Le</div>
+        <div className="camera-stage__credit">
+          Created by George Le · v{__APP_VERSION__}
+        </div>
       )}
     </div>
   )

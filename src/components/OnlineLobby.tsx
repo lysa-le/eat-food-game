@@ -156,7 +156,13 @@ function HostLobby({ cameraReady, onStart, onExit }: OnlineLobbyProps) {
               setStartError(null)
               // The countdown starts from the server-confirmed "started"
               // (watchRoom), never from this tap alone.
-              startRoom(roomId).catch((err) => {
+              startRoom(roomId)
+                .then(() => {
+                  if (startedRef.current) return
+                  startedRef.current = true
+                  onStart({ roomId, role: 'host' })
+                })
+                .catch((err) => {
                 console.error('Failed to start the game', err)
                 setStarting(false)
                 setStartError(
@@ -194,13 +200,18 @@ function GuestLobby({
 
   useEffect(
     () =>
-      watchRoom(roomId, (next) => {
-        setStatus(next)
-        if (next === 'started' && joiningRef.current && !startedRef.current) {
-          startedRef.current = true
-          onStart({ roomId, role: 'guest' })
-        }
-      }),
+      watchRoom(
+        roomId,
+        (next) => {
+          setStatus(next)
+          if (next === 'started' && joiningRef.current && !startedRef.current) {
+            startedRef.current = true
+            onStart({ roomId, role: 'guest' })
+          }
+        },
+        // Backup for Safari's late live updates: ask the server every second.
+        { pollMs: 1000 },
+      ),
     // onStart is stable for the lifetime of this lobby.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [roomId],
