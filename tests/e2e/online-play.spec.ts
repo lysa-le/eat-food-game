@@ -101,33 +101,82 @@ test('Play Again: both tap, a fresh round 2 starts in the same room', async ({ b
   await expect(host.locator('.camera-stage__result-headline')).toHaveText('Player 2 Wins!')
 })
 
-test('leaving after a round: the other phone sees "Player N has left the game"', async ({ browser }) => {
+test('leaving after a round: the other phone sees "Player N has quit the game"', async ({ browser }) => {
   const { host, guest } = await startOnlineGame(browser)
   await loseAllLives(host)
   await loseAllLives(guest)
   await expect(guest.locator('.camera-stage__overlay--game-over h1')).toHaveText('Game Over')
   await host.getByRole('button', { name: 'Return to menu' }).click()
-  await expect(guest.getByText('Player 1 has left the game')).toBeVisible()
+  await expect(guest.getByText('Player 1 has quit the game')).toBeVisible()
   await expect(guest.getByRole('button', { name: 'Play Again' })).toHaveCount(0)
 })
 
-test('idle friend stays "still playing"; a closed one has "left the game"', async ({ browser }) => {
+test('idle friend stays "still playing"; a silent one has quit → You Win!', async ({ browser }) => {
   test.setTimeout(240_000)
   const { host, guest } = await startOnlineGame(browser)
   await addPoints(host, 20)
+  await addPoints(guest, 90)
   await loseAllLives(host)
   // Guest idle for 36s: only heartbeats arrive.
   await host.waitForTimeout(36_000)
   await expect(host.locator('.camera-stage__hud--below-panels')).toContainText('Player 2 is still playing')
+  await expect(host.getByRole('button', { name: 'Return to menu' })).toBeVisible()
 
-  await guest.context().close()
-  const card = host.locator('.camera-stage__hud--center')
-  await expect(card).toContainText('Player 2 has left the game', { timeout: 45_000 })
-  const offset = await card.evaluate((e) => {
-    const r = e.getBoundingClientRect()
-    return Math.round(Math.abs(r.left + r.width / 2 - innerWidth / 2) + Math.abs(r.top + r.height / 2 - innerHeight / 2))
-  })
-  expect(offset).toBeLessThanOrEqual(2)
-  await card.getByRole('button', { name: 'Return to menu' }).click()
+  // Guest goes silent without closing the room (like a phone locking):
+  // block its writes, then wait out the 30s.
+  await guest.context().route('**/firestore.googleapis.com/**', (route) => route.abort())
+  await expect(host.locator('.camera-stage__result-headline')).toHaveText('You Win!', { timeout: 60_000 })
+  await expect(host.locator('.camera-stage__match-ranking li').nth(1)).toContainText('Quit')
+  await expect(host.getByText('Player 2 has quit the game')).toBeVisible()
+  await host.getByRole('button', { name: 'Return to menu' }).click()
   await expect(host.locator('.camera-stage__title')).toHaveText('Eat Food')
+})
+
+test('a paused player shows "Paused" in their box and in the waiting banner', async ({ browser }) => {
+  const { host, guest } = await startOnlineGame(browser)
+  await guest.getByRole('button', { name: 'Pause' }).click()
+  await expect.poll(async () => (await panelTexts(host))[1]).toBe('Player 2 Score 0 Lv 1 Paused')
+  await loseAllLives(host)
+  await expect(host.locator('.camera-stage__hud--below-panels')).toContainText('Player 2 paused')
+  await guest.getByRole('button', { name: 'Resume' }).click()
+  await expect(host.locator('.camera-stage__hud--below-panels')).toContainText('Player 2 is still playing')
+  await expect.poll(async () => (await panelTexts(host))[1]).toBe('Player 2 Score 0 Lv 1')
+})
+
+test('Quit from the pause screen: the other player sees it, keeps playing, and wins', async ({ browser }) => {
+  const { host, guest } = await startOnlineGame(browser)
+  await addPoints(host, 10)
+  await addPoints(guest, 50)
+  await guest.getByRole('button', { name: 'Pause' }).click()
+  await guest.getByRole('button', { name: 'Quit' }).click()
+  await expect(guest.locator('.camera-stage__title')).toHaveText('Eat Food')
+
+  await expect(host.getByText('Player 2 has quit the game')).toBeVisible()
+  await expect.poll(async () => (await panelTexts(host))[1]).toBe('Player 2 Score 50 Lv 1 Quit')
+  // Host keeps playing, then finishes: wins despite the lower score.
+  await addPoints(host, 5)
+  await loseAllLives(host)
+  await expect(host.locator('.camera-stage__result-headline')).toHaveText('You Win!')
+  const rows = await host.locator('.camera-stage__match-ranking li').allInnerTexts()
+  expect(rows.map((r) => r.replace(/\s+/g, ' ').trim())).toEqual(['1. Player 1 000015', '2. Player 2 Quit'])
+  await expect(host.getByRole('button', { name: 'Play Again' })).toHaveCount(0)
+})
+
+test('reloading the page mid-game quits it: the other player is told right away', async ({ browser }) => {
+  const { host, guest } = await startOnlineGame(browser)
+  const t0 = Date.now()
+  await guest.reload()
+  await expect(host.getByText('Player 2 has quit the game')).toBeVisible({ timeout: 15_000 })
+  expect(Date.now() - t0).toBeLessThan(15_000)
+  await expect.poll(async () => (await panelTexts(host))[1]).toContain('Quit')
+})
+
+test('Return to menu while out (other still playing) counts as quitting', async ({ browser }) => {
+  const { host, guest } = await startOnlineGame(browser)
+  await loseAllLives(guest)
+  await guest.getByRole('button', { name: 'Return to menu' }).click()
+  await expect(guest.locator('.camera-stage__title')).toHaveText('Eat Food')
+  await expect(host.getByText('Player 2 has quit the game')).toBeVisible()
+  await loseAllLives(host)
+  await expect(host.locator('.camera-stage__result-headline')).toHaveText('You Win!')
 })

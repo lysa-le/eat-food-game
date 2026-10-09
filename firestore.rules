@@ -61,12 +61,13 @@ service cloud.firestore {
     }
 
     function isValidPlayerState(data) {
-      return data.keys().hasOnly(['score', 'lives', 'level', 'out', 'round', 'updatedAt'])
-        && data.keys().hasAll(['score', 'lives', 'level', 'out', 'round', 'updatedAt'])
+      return data.keys().hasOnly(['score', 'lives', 'level', 'out', 'paused', 'round', 'updatedAt'])
+        && data.keys().hasAll(['score', 'lives', 'level', 'out', 'paused', 'round', 'updatedAt'])
         && data.score is int && data.score >= 0 && data.score <= 999999
         && data.lives is int && data.lives >= 0 && data.lives <= 3
         && data.level is int && data.level >= 1 && data.level <= 1000
         && data.out is bool
+        && data.paused is bool
         && data.round is int && data.round >= 1
         && data.updatedAt == request.time;
     }

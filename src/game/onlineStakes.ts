@@ -20,20 +20,33 @@ export interface MatchRow {
   playerNumber: 1 | 2
   score: number
   isYou: boolean
+  /** Quit before finishing (shown as "Quit" instead of a score). */
+  quit: boolean
 }
 
 /**
  * Online result: who won, and both players ranked by score (higher
- * first). A tie shares rank 1, listed Player 1 first.
+ * first). A tie shares rank 1, listed Player 1 first. If the other player
+ * quit before finishing, you win whatever the scores.
  */
 export function onlineMatchResult(
   yourRole: PlayerRole,
   you: { score: number },
   friend: { score: number },
+  friendQuit = false,
 ): { headline: string; rows: MatchRow[] } {
   const friendRole: PlayerRole = yourRole === 'host' ? 'guest' : 'host'
-  const yours = { playerNumber: playerNumber(yourRole), score: you.score, isYou: true }
-  const theirs = { playerNumber: playerNumber(friendRole), score: friend.score, isYou: false }
+  const yours = { playerNumber: playerNumber(yourRole), score: you.score, isYou: true, quit: false }
+  const theirs = { playerNumber: playerNumber(friendRole), score: friend.score, isYou: false, quit: friendQuit }
+  if (friendQuit) {
+    return {
+      headline: 'You Win!',
+      rows: [
+        { rank: 1, ...yours },
+        { rank: 2, ...theirs },
+      ],
+    }
+  }
   const tie = you.score === friend.score
   const [first, second] =
     you.score > friend.score || (tie && yours.playerNumber === 1)

@@ -3,13 +3,14 @@ import {
   addDoc,
   collection,
   getDocs,
-  getFirestore,
+  initializeFirestore,
   limit,
   orderBy,
   query,
   serverTimestamp,
   type Firestore,
 } from 'firebase/firestore'
+import { prefersLongPolling } from './firestoreTransport'
 import type { HighScoreEntry } from './highScore'
 
 export const GLOBAL_LEADERBOARD_LIMIT = 10
@@ -27,6 +28,15 @@ const firebaseConfig = {
  * network calls entirely when it isn't configured, rather than every
  * caller needing to handle a half-broken Firebase client.
  */
+/** Project id + API key, for the few reads that use Firestore's REST API
+ * instead of the SDK (see onlineRoom.ts fetchRoomData). */
+export function firestoreRestConfig(): { projectId: string; apiKey: string } {
+  return {
+    projectId: firebaseConfig.projectId ?? '',
+    apiKey: firebaseConfig.apiKey ?? '',
+  }
+}
+
 export function isGlobalLeaderboardConfigured(): boolean {
   return Boolean(
     firebaseConfig.apiKey &&
@@ -42,7 +52,17 @@ let db: Firestore | null = null
 export function getDb(): Firestore {
   if (!db) {
     const app: FirebaseApp = initializeApp(firebaseConfig)
-    db = getFirestore(app)
+    // Long polling on Safari / iOS — see firestoreTransport.ts.
+    db = initializeFirestore(
+      app,
+      prefersLongPolling(
+        navigator.userAgent,
+        navigator.platform,
+        navigator.maxTouchPoints,
+      )
+        ? { experimentalForceLongPolling: true }
+        : {},
+    )
   }
   return db
 }

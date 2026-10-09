@@ -788,6 +788,11 @@
   font-size: 1rem;
 }
 
+/* "Paused" in a player's box: yellow, not the red of Game Over / Quit. */
+.camera-stage__side-hud-gameover--paused {
+  color: #fde047;
+}
+
 .camera-stage__versus-result {
   display: flex;
   gap: 2rem;

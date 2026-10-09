@@ -6,6 +6,7 @@ import {
   joinRoom,
   leaveRoom,
   roomLink,
+  setRoomStatusOnUnload,
   startRoom,
   watchRoom,
   type PlayerRole,
@@ -94,6 +95,15 @@ function HostLobby({ cameraReady, onStart, onExit }: OnlineLobbyProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Closing the page while waiting closes the room for the guest.
+  useEffect(() => {
+    const onUnload = () => {
+      if (roomId && !startedRef.current) setRoomStatusOnUnload(roomId, 'closed')
+    }
+    window.addEventListener('pagehide', onUnload)
+    return () => window.removeEventListener('pagehide', onUnload)
+  }, [roomId])
+
   const shareLink = async () => {
     if (!roomId) return
     const url = roomLink(roomId)
@@ -156,7 +166,13 @@ function HostLobby({ cameraReady, onStart, onExit }: OnlineLobbyProps) {
               setStartError(null)
               // The countdown starts from the server-confirmed "started"
               // (watchRoom), never from this tap alone.
-              startRoom(roomId).catch((err) => {
+              startRoom(roomId)
+                .then(() => {
+                  if (startedRef.current) return
+                  startedRef.current = true
+                  onStart({ roomId, role: 'host' })
+                })
+                .catch((err) => {
                 console.error('Failed to start the game', err)
                 setStarting(false)
                 setStartError(
@@ -194,13 +210,18 @@ function GuestLobby({
 
   useEffect(
     () =>
-      watchRoom(roomId, (next) => {
-        setStatus(next)
-        if (next === 'started' && joiningRef.current && !startedRef.current) {
-          startedRef.current = true
-          onStart({ roomId, role: 'guest' })
-        }
-      }),
+      watchRoom(
+        roomId,
+        (next) => {
+          setStatus(next)
+          if (next === 'started' && joiningRef.current && !startedRef.current) {
+            startedRef.current = true
+            onStart({ roomId, role: 'guest' })
+          }
+        },
+        // Backup for Safari's late live updates: ask the server every second.
+        { pollMs: 1000 },
+      ),
     // onStart is stable for the lifetime of this lobby.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [roomId],
@@ -217,6 +238,15 @@ function GuestLobby({
         joiningRef.current = false
       })
   }, [status, cameraReady, roomId])
+
+  // Closing the page after joining frees the spot (host back to waiting).
+  useEffect(() => {
+    const onUnload = () => {
+      if (joined && status === 'ready') setRoomStatusOnUnload(roomId, 'waiting')
+    }
+    window.addEventListener('pagehide', onUnload)
+    return () => window.removeEventListener('pagehide', onUnload)
+  }, [joined, status, roomId])
 
   const leave = () => {
     if (joined && status === 'ready') void leaveRoom(roomId)

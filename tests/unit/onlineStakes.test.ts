@@ -34,6 +34,18 @@ test('result: higher score wins, from either phone', () => {
   )
 })
 
+test('result: if the other player quit, you win whatever the scores', () => {
+  const r = onlineMatchResult('guest', { score: 10 }, { score: 90 }, true)
+  assert.equal(r.headline, 'You Win!')
+  assert.deepEqual(
+    r.rows.map((w) => [w.rank, w.playerNumber, w.isYou, w.quit]),
+    [
+      [1, 2, true, false],
+      [2, 1, false, true],
+    ],
+  )
+})
+
 test('result: a tie shares rank 1, Player 1 listed first', () => {
   assert.equal(
     summary(onlineMatchResult('host', { score: 50 }, { score: 50 })),

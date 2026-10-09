@@ -45,6 +45,7 @@ import {
   otherRole,
   publishPlayerState,
   requestPlayAgain,
+  setRoomStatusOnUnload,
   startNextRound,
   takeRoomIdFromUrl,
   watchPlayerState,
@@ -134,9 +135,9 @@ const ONLINE_SEND_INTERVAL_MS = 500
 /** Online: each phone also re-sends its state this often ("still here"),
  * so a friend who isn't scoring doesn't look like they've left. */
 const ONLINE_HEARTBEAT_MS = 5000
-/** Online, out first: no word from the friend for this long means they've
+/** Online: no word from the friend for this long means they've quit
  * left (closed the app, lost signal). */
-const FRIEND_LEFT_AFTER_MS = 30000
+const FRIEND_QUIT_AFTER_MS = 30000
 
 /** Seconds counted down before an online game starts on both phones. */
 const ONLINE_COUNTDOWN_SECONDS = 3
@@ -298,7 +299,7 @@ function PlayerPanel({
   score,
   level,
   lives,
-  out,
+  status,
   online = false,
   isYou = false,
 }: {
@@ -307,7 +308,8 @@ function PlayerPanel({
   score: number
   level: number
   lives: number
-  out: boolean
+  /** Shown in place of the hearts: out of lives, quit, or paused. */
+  status: 'Game Over' | 'Quit' | 'Paused' | null
   /** Online boxes sit a little lower to leave room for the YOU tab. */
   online?: boolean
   /** Online: a "YOU" tab on the top edge of this phone's own box. */
@@ -327,8 +329,16 @@ function PlayerPanel({
         <span>Lv</span>
         <span className="camera-stage__level-value">{level}</span>
       </div>
-      {out ? (
-        <div className="camera-stage__side-hud-gameover">Game Over</div>
+      {status ? (
+        <div
+          className={
+            status === 'Paused'
+              ? 'camera-stage__side-hud-gameover camera-stage__side-hud-gameover--paused'
+              : 'camera-stage__side-hud-gameover'
+          }
+        >
+          {status}
+        </div>
       ) : (
         <div className="camera-stage__side-hud-lives">
           {Array.from({ length: STARTING_LIVES }, (_, i) => (
@@ -550,7 +560,12 @@ export function CameraStage() {
   // Online: when the friend's state last arrived (Date.now() ms), and
   // whether they've gone quiet long enough to count as gone.
   const [friendSeenAt, setFriendSeenAt] = useState(0)
-  const [friendLeft, setFriendLeft] = useState(false)
+  // Online: the friend quit this round — by closing the room (Quit,
+  // Return to menu, closing/reloading the page; sticks for the round) or
+  // by going silent for 30s (clears if their updates come back).
+  const [friendQuitByClose, setFriendQuitByClose] = useState(false)
+  const [friendSilent, setFriendSilent] = useState(false)
+  const friendQuit = friendQuitByClose || friendSilent
   // Online: the room's round + Play Again taps, and the round this phone
   // is playing (they differ for a moment when the next round starts).
   const [roomState, setRoomState] = useState<RoomState | null>(null)
@@ -685,8 +700,14 @@ export function CameraStage() {
           lives: Math.max(0, livesRemaining),
           level: currentLevel,
           out: livesRemaining <= 0,
+          paused: screenLocal === 'paused',
           round: onlineRound,
-        }).catch((err) => console.error('Failed to send online state', err))
+        }).catch((err) => {
+          // Expected once the other player quits: the room is closed, so
+          // the rules (rightly) refuse further updates to it.
+          if ((err as { code?: string })?.code === 'permission-denied') return
+          console.error('Failed to send online state', err)
+        })
       }
       const wait = urgent
         ? 0
@@ -737,6 +758,7 @@ export function CameraStage() {
       setScreen('paused')
       pauseStartedAt = performance.now()
       cancelAnimationFrame(rafId)
+      publishOnline(true)
     }
 
     const resumeGame = () => {
@@ -745,6 +767,7 @@ export function CameraStage() {
       screenLocal = 'playing'
       setScreen('playing')
       if (renderLoop) rafId = requestAnimationFrame(renderLoop)
+      publishOnline(true)
     }
 
     /** Clears all game state (score, lives, food, both versus sides). */
@@ -785,6 +808,12 @@ export function CameraStage() {
      * online game closes its room, so the friend sees you've left. */
     const returnToMenu = () => {
       if (onlineLocal) void closeRoom(onlineLocal.roomId)
+      // Quit from the pause screen: the draw loop is stopped while paused,
+      // and the menu needs the live camera behind it.
+      if (screenLocal === 'paused') {
+        pausedAccumulatedMs += performance.now() - pauseStartedAt
+        if (renderLoop) rafId = requestAnimationFrame(renderLoop)
+      }
       resetGameState()
       setOnlineSession(null)
       screenLocal = 'start'
@@ -1369,12 +1398,20 @@ export function CameraStage() {
 
     start()
 
+    // Closing or reloading the page in an online game quits it, so the
+    // other phone finds out right away (see setRoomStatusOnUnload).
+    const quitOnUnload = () => {
+      if (onlineLocal) setRoomStatusOnUnload(onlineLocal.roomId, 'closed')
+    }
+    window.addEventListener('pagehide', quitOnUnload)
+
     return () => {
       cancelled = true
       cancelAnimationFrame(rafId)
       clearTimeout(joinBannerTimer)
       clearTimeout(publishTimer)
       clearInterval(heartbeatTimer)
+      window.removeEventListener('pagehide', quitOnUnload)
       stream?.getTracks().forEach((track) => track.stop())
       if (handleResize) window.removeEventListener('resize', handleResize)
     }
@@ -1423,7 +1460,8 @@ export function CameraStage() {
   const beginOnlineCountdown = (session: OnlineSession) => {
     setFriendState(null)
     setFriendSeenAt(Date.now())
-    setFriendLeft(false)
+    setFriendQuitByClose(false)
+    setFriendSilent(false)
     setRoomState(null)
     setPlayingRound(1)
     setPlayAgainError(null)
@@ -1455,10 +1493,17 @@ export function CameraStage() {
     )
   }, [onlineSession])
 
+  // On the result screen (waiting for Play Again), also poll — a missed
+  // round change would leave one phone behind.
+  const onResultScreen = screen === 'game-over'
   useEffect(() => {
     if (!onlineSession) return
-    return watchRoomState(onlineSession.roomId, setRoomState)
-  }, [onlineSession])
+    return watchRoomState(
+      onlineSession.roomId,
+      setRoomState,
+      onResultScreen ? { pollMs: 1000 } : undefined,
+    )
+  }, [onlineSession, onResultScreen])
 
   // Play Again: once both tapped, the host starts the next round...
   const startingRoundRef = useRef(0)
@@ -1483,7 +1528,8 @@ export function CameraStage() {
     if (!onlineSession || !roomState || roomState.round <= playingRound) return
     setPlayingRound(roomState.round)
     setFriendSeenAt(Date.now())
-    setFriendLeft(false)
+    setFriendQuitByClose(false)
+    setFriendSilent(false)
     setPlayAgainError(null)
     setCountdownEndsAt(performance.now() + ONLINE_COUNTDOWN_SECONDS * 1000)
     setCountdown(ONLINE_COUNTDOWN_SECONDS)
@@ -1499,24 +1545,38 @@ export function CameraStage() {
     })
   }
 
-  // Out first and waiting: the friend has left if they closed the room
-  // (Return to menu) or went quiet for 30s.
+  // Quitting is judged only while the round is being played: leaving the
+  // result screen afterwards doesn't change who won. A player who's out
+  // but leaves before the other finishes has still quit.
   const friendClosedRoom = roomState?.status === 'closed'
+  const roundInPlay = screen === 'playing' || screen === 'paused'
   useEffect(() => {
-    if (!selfOut || friend?.out) {
-      setFriendLeft(false)
-      return
-    }
-    if (friendClosedRoom) {
-      setFriendLeft(true)
-      return
-    }
+    if (onlineSession && roundInPlay && friendClosedRoom) setFriendQuitByClose(true)
+  }, [onlineSession, roundInPlay, friendClosedRoom])
+  useEffect(() => {
+    if (!onlineSession || !roundInPlay) return
     const check = () =>
-      setFriendLeft(Date.now() - friendSeenAt >= FRIEND_LEFT_AFTER_MS)
+      setFriendSilent(Date.now() - friendSeenAt >= FRIEND_QUIT_AFTER_MS)
     check()
     const timer = setInterval(check, 1000)
     return () => clearInterval(timer)
-  }, [selfOut, friend?.out, friendSeenAt, friendClosedRoom])
+  }, [onlineSession, roundInPlay, friendSeenAt])
+
+  // Quitting means the other player wins: once you're out, go straight
+  // to the result.
+  useEffect(() => {
+    if (selfOut && friendQuit) controlsRef.current.finishOnlineRound()
+  }, [selfOut, friendQuit])
+
+  // Still playing when the friend quits: a brief banner (their box keeps
+  // showing "Quit").
+  const [showQuitBanner, setShowQuitBanner] = useState(false)
+  useEffect(() => {
+    if (!friendQuit || selfOut || screen !== 'playing') return
+    setShowQuitBanner(true)
+    const timer = setTimeout(() => setShowQuitBanner(false), 4000)
+    return () => clearTimeout(timer)
+  }, [friendQuit, selfOut, screen])
 
   useEffect(() => {
     if (countdownEndsAt === null) return
@@ -1549,30 +1609,35 @@ export function CameraStage() {
       {selfOut && screen === 'playing' && (
         <>
           <div className="camera-stage__dim" />
-          {friendLeft ? (
-            <div className="camera-stage__hud camera-stage__hud--center camera-stage__hud--interactive">
-              <p>Player {playerNumber(otherRole(onlineSession!.role))} has left the game</p>
-              <button
-                type="button"
-                className="camera-stage__hud-button"
-                onClick={() => controlsRef.current.returnToMenu()}
-              >
-                Return to menu
-              </button>
-            </div>
-          ) : (
-            <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels">
-              <p>Player {playerNumber(otherRole(onlineSession!.role))} is still playing</p>
-              <p className="camera-stage__hud-stakes">
-                {friendStakesText(
-                  score,
-                  friend?.score ?? 0,
-                  playerNumber(otherRole(onlineSession!.role)),
-                )}
-              </p>
-            </div>
-          )}
+          <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels camera-stage__hud--interactive">
+            <p>
+              Player {playerNumber(otherRole(onlineSession!.role))}{' '}
+              {friend?.paused ? 'paused' : 'is still playing'}
+            </p>
+            <p className="camera-stage__hud-stakes">
+              {friendStakesText(
+                score,
+                friend?.score ?? 0,
+                playerNumber(otherRole(onlineSession!.role)),
+              )}
+            </p>
+            {/* Leaving now counts as quitting: the other player wins. */}
+            <button
+              type="button"
+              className="camera-stage__hud-button"
+              onClick={() => controlsRef.current.returnToMenu()}
+            >
+              Return to menu
+            </button>
+          </div>
         </>
+      )}
+
+      {/* Online, still playing when the other player quits. */}
+      {showQuitBanner && onlineSession && screen === 'playing' && !selfOut && (
+        <div className="camera-stage__hud camera-stage__hud--top camera-stage__hud--below-panels">
+          <p>Player {playerNumber(otherRole(onlineSession.role))} has quit the game</p>
+        </div>
       )}
 
       {/* Like the versus side HUDs, hidden on the start menu. Online
@@ -1624,7 +1689,7 @@ export function CameraStage() {
             score={side1.score}
             level={side1.level}
             lives={side1.lives}
-            out={side1.gameOver && screen === 'playing'}
+            status={side1.gameOver && screen === 'playing' ? 'Game Over' : null}
           />
           <PlayerPanel
             side="p2"
@@ -1632,7 +1697,7 @@ export function CameraStage() {
             score={side2.score}
             level={side2.level}
             lives={side2.lives}
-            out={side2.gameOver && screen === 'playing'}
+            status={side2.gameOver && screen === 'playing' ? 'Game Over' : null}
           />
         </>
       )}
@@ -1641,12 +1706,18 @@ export function CameraStage() {
           on both phones — Player 1 (host) orange on the left, Player 2 green
           on the right — with a YOU tab on this phone's own box. */}
       {onlineSession && screen !== 'start' && (() => {
-        const mine = { score, level, lives, out: selfOut }
+        const mine = { score, level, lives, status: selfOut ? ('Game Over' as const) : null }
         const theirs = {
           score: friend?.score ?? 0,
           level: friend?.level ?? 1,
           lives: friend?.lives ?? STARTING_LIVES,
-          out: friend?.out ?? false,
+          status: friend?.out
+            ? ('Game Over' as const)
+            : friendQuit
+              ? ('Quit' as const)
+              : friend?.paused
+                ? ('Paused' as const)
+                : null,
         }
         const amHost = onlineSession.role === 'host'
         return (
@@ -1769,6 +1840,14 @@ export function CameraStage() {
       {screen === 'paused' && (
         <div className="camera-stage__overlay">
           <h1>Paused</h1>
+          {/* Online, this counts as quitting: the other player wins. */}
+          <button
+            type="button"
+            className="camera-stage__action-button camera-stage__secondary-button"
+            onClick={() => controlsRef.current.returnToMenu()}
+          >
+            Quit
+          </button>
         </div>
       )}
 
@@ -1779,6 +1858,7 @@ export function CameraStage() {
           onlineSession.role,
           { score },
           { score: friend?.score ?? 0 },
+          friendQuit,
         )
         return (
           <div className="camera-stage__overlay camera-stage__overlay--game-over">
@@ -1799,7 +1879,7 @@ export function CameraStage() {
                     Player {row.playerNumber}
                   </span>
                   <span className="camera-stage__leaderboard-score">
-                    {formatScore(row.score)}
+                    {row.quit ? 'Quit' : formatScore(row.score)}
                   </span>
                 </li>
               ))}
@@ -1836,10 +1916,10 @@ export function CameraStage() {
               const friendWantsAgain = Boolean(
                 roomState?.[`${otherRole(onlineSession.role)}Again`],
               )
-              if (friendClosedRoom) {
+              if (friendClosedRoom || friendQuit) {
                 return (
                   <p className="camera-stage__lobby-status">
-                    Player {friendNumber} has left the game
+                    Player {friendNumber} has quit the game
                   </p>
                 )
               }
@@ -1994,7 +2074,9 @@ export function CameraStage() {
       )}
 
       {(screen === 'start' || screen === 'game-over') && (
-        <div className="camera-stage__credit">Created by George Le</div>
+        <div className="camera-stage__credit">
+          Created by George Le · v{__APP_VERSION__}
+        </div>
       )}
     </div>
   )

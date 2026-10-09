@@ -11,9 +11,14 @@ import {
   Timestamp,
   updateDoc,
   where,
+  type DocumentData,
   type Unsubscribe,
 } from 'firebase/firestore'
-import { getDb, isGlobalLeaderboardConfigured } from './globalLeaderboard'
+import {
+  firestoreRestConfig,
+  getDb,
+  isGlobalLeaderboardConfigured,
+} from './globalLeaderboard'
 import { effectiveRoomStatus, type RoomStatus } from './roomStatus'
 
 export type { RoomStatus }
@@ -105,9 +110,13 @@ export async function cleanupExpiredRooms(): Promise<number> {
     )
     // Firestore doesn't delete subcollections with their parent, so clear
     // each room's player docs first (the rules check the parent room).
-    await Promise.all(
+    // Two phones creating rooms at once can clean the same rooms; whoever
+    // is second gets "permission denied" deleting docs that are already
+    // gone (the rules can't see an expiry on a missing doc). Each delete
+    // stands alone so one lost race doesn't stop the rest.
+    await Promise.allSettled(
       expired.docs.map(async (d) => {
-        await Promise.all(
+        await Promise.allSettled(
           PLAYER_ROLES.map((role) => deleteDoc(playerRef(d.id, role))),
         )
         await deleteDoc(d.ref)
@@ -134,6 +143,8 @@ export interface PlayerState {
   level: number
   /** Out of lives — their game is over. */
   out: boolean
+  /** On the pause screen (shown as "Paused" in their box). */
+  paused: boolean
   /** Which round this is from (Play Again starts round 2, 3…), so a
    * finished round's "out" can't end the next one. */
   round: number
@@ -156,6 +167,7 @@ export function publishPlayerState(
     lives: state.lives,
     level: state.level,
     out: state.out,
+    paused: state.paused,
     round: state.round,
     updatedAt: serverTimestamp(),
   })
@@ -179,6 +191,7 @@ export function watchPlayerState(
               lives: Number(data.lives) || 0,
               level: Number(data.level) || 1,
               out: data.out === true,
+              paused: data.paused === true,
               round: Number(data.round) || 1,
             }
           : null,
@@ -197,6 +210,42 @@ function setStatus(roomId: string, status: RoomStatus): Promise<void> {
 export const joinRoom = (roomId: string) => setStatus(roomId, 'ready')
 export const leaveRoom = (roomId: string) => setStatus(roomId, 'waiting')
 export const closeRoom = (roomId: string) => setStatus(roomId, 'closed')
+
+/**
+ * Sets a room's status while the page is closing or reloading (pagehide):
+ * the SDK can't be relied on to finish a write then, but a `keepalive`
+ * fetch to Firestore's REST API outlives the page. Same rules apply (only
+ * `status` changes). Best effort — iOS doesn't always fire pagehide, so
+ * the other phone also treats 30s of silence as leaving.
+ */
+export function setRoomStatusOnUnload(roomId: string, status: RoomStatus): void {
+  const { projectId, apiKey } = firestoreRestConfig()
+  // A Firestore `commit` sent as a CORS "simple" request (POST, text/plain)
+  // — no preflight, so browsers let it go out while the page unloads.
+  // sendBeacon is built for exactly this; keepalive fetch is the fallback.
+  const url =
+    `https://firestore.googleapis.com/v1/projects/${projectId}` +
+    `/databases/(default)/documents:commit?key=${apiKey}`
+  const body = JSON.stringify({
+    writes: [
+      {
+        update: {
+          name: `projects/${projectId}/databases/(default)/documents/${ROOMS_COLLECTION}/${roomId}`,
+          fields: { status: { stringValue: status } },
+        },
+        updateMask: { fieldPaths: ['status'] },
+      },
+    ],
+  })
+  const type = 'text/plain;charset=UTF-8'
+  if (navigator.sendBeacon?.(url, new Blob([body], { type }))) return
+  void fetch(url, {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'Content-Type': type },
+    body,
+  }).catch(() => {})
+}
 export const startRoom = (roomId: string) =>
   updateDoc(roomRef(roomId), {
     status: 'started',
@@ -225,36 +274,6 @@ export interface RoomState {
   guestAgain: boolean
 }
 
-/** Like watchRoom (server-confirmed only), plus the round and Play
- * Again taps. */
-export function watchRoomState(
-  roomId: string,
-  onChange: (state: RoomState) => void,
-): Unsubscribe {
-  return onSnapshot(
-    roomRef(roomId),
-    CONFIRMED_ONLY,
-    (snapshot) => {
-      if (snapshot.metadata.hasPendingWrites) return
-      const data = snapshot.data()
-      const expiresAt = data?.expiresAt
-      onChange({
-        status: effectiveRoomStatus(
-          data?.status,
-          expiresAt instanceof Timestamp ? expiresAt.toMillis() : null,
-          Date.now(),
-        ),
-        round: Number(data?.round) || 1,
-        hostAgain: data?.hostAgain === true,
-        guestAgain: data?.guestAgain === true,
-      })
-    },
-    (err) => {
-      console.error('Room listener failed', err)
-    },
-  )
-}
-
 /**
  * Firestore shows this phone's own writes instantly, before the server
  * accepts them. A rejected write (e.g. an older app version against newer
@@ -264,31 +283,123 @@ export function watchRoomState(
  */
 const CONFIRMED_ONLY = { includeMetadataChanges: true } as const
 
+function toRoomState(data: DocumentData | undefined): RoomState {
+  const expiresAt = data?.expiresAt
+  return {
+    status: effectiveRoomStatus(
+      data?.status,
+      expiresAt instanceof Timestamp ? expiresAt.toMillis() : null,
+      Date.now(),
+    ),
+    round: Number(data?.round) || 1,
+    hostAgain: data?.hostAgain === true,
+    guestAgain: data?.guestAgain === true,
+  }
+}
+
+/**
+ * Reads a room through Firestore's REST API — a plain HTTPS request,
+ * independent of the SDK's live connection (whose own "get from server"
+ * travels over that same connection, so it can't route around a stalled
+ * one). Same security rules apply. Returns null if it doesn't exist.
+ */
+async function fetchRoomData(roomId: string): Promise<DocumentData | null> {
+  const { projectId, apiKey } = firestoreRestConfig()
+  const url =
+    `https://firestore.googleapis.com/v1/projects/${projectId}` +
+    `/databases/(default)/documents/${ROOMS_COLLECTION}/${roomId}?key=${apiKey}`
+  const response = await fetch(url, { cache: 'no-store' })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`Room fetch failed: ${response.status}`)
+  const fields = (await response.json()).fields ?? {}
+  return {
+    status: fields.status?.stringValue,
+    round: Number(fields.round?.integerValue ?? 1),
+    hostAgain: fields.hostAgain?.booleanValue === true,
+    guestAgain: fields.guestAgain?.booleanValue === true,
+    expiresAt: fields.expiresAt?.timestampValue
+      ? Timestamp.fromDate(new Date(fields.expiresAt.timestampValue))
+      : undefined,
+  }
+}
+
+export interface WatchOptions {
+  /**
+   * Also ask the server directly this often. A backup for moments where a
+   * missed update matters (waiting for Start / the next round): Safari
+   * has delivered live updates more than 5s late.
+   */
+  pollMs?: number
+}
+
+/** Server-confirmed room state from the live listener (plus optional
+ * polling), reporting each distinct state once. */
+function watchRoomDoc(
+  roomId: string,
+  onChange: (state: RoomState) => void,
+  onError: () => void,
+  { pollMs }: WatchOptions = {},
+): Unsubscribe {
+  let last = ''
+  const report = (state: RoomState) => {
+    const key = JSON.stringify(state)
+    if (key === last) return
+    last = key
+    onChange(state)
+  }
+  const unsubscribe = onSnapshot(
+    roomRef(roomId),
+    CONFIRMED_ONLY,
+    (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return
+      report(toRoomState(snapshot.data()))
+    },
+    (err) => {
+      console.error('Room listener failed', err)
+      onError()
+    },
+  )
+  const timer =
+    pollMs === undefined
+      ? undefined
+      : setInterval(() => {
+          fetchRoomData(roomId)
+            .then((data) => data && report(toRoomState(data)))
+            .catch(() => {})
+        }, pollMs)
+  return () => {
+    unsubscribe()
+    clearInterval(timer)
+  }
+}
+
+/** Like watchRoom (server-confirmed only), plus the round and Play
+ * Again taps. */
+export function watchRoomState(
+  roomId: string,
+  onChange: (state: RoomState) => void,
+  options?: WatchOptions,
+): Unsubscribe {
+  return watchRoomDoc(roomId, onChange, () => {}, options)
+}
+
 /** Calls back with the room's status on every server-confirmed change,
  * or null if the room doesn't exist or can't be read. Expired rooms
  * report 'closed'. */
 export function watchRoom(
   roomId: string,
   onChange: (status: RoomStatus | null) => void,
+  options?: WatchOptions,
 ): Unsubscribe {
-  return onSnapshot(
-    roomRef(roomId),
-    CONFIRMED_ONLY,
-    (snapshot) => {
-      if (snapshot.metadata.hasPendingWrites) return
-      const data = snapshot.data()
-      const expiresAt = data?.expiresAt
-      onChange(
-        effectiveRoomStatus(
-          data?.status,
-          expiresAt instanceof Timestamp ? expiresAt.toMillis() : null,
-          Date.now(),
-        ),
-      )
+  let lastStatus: RoomStatus | null | undefined
+  return watchRoomDoc(
+    roomId,
+    (state) => {
+      if (state.status === lastStatus) return
+      lastStatus = state.status
+      onChange(state.status)
     },
-    (err) => {
-      console.error('Room listener failed', err)
-      onChange(null)
-    },
+    () => onChange(null),
+    options,
   )
 }
